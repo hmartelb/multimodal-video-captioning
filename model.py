@@ -4,12 +4,14 @@ import torch
 import torch.nn as nn
 import torchvision
 import torchvision.models as models
+
 # import torchvision.transforms as trasnforms
+
 
 class AudioEncoder(nn.Module):
     def __init__(
         self,
-        embedding_dim,
+        # embedding_dim,
         model="vggish",
         trainable=False,
     ):
@@ -18,7 +20,10 @@ class AudioEncoder(nn.Module):
 
         if model == "vggish":
             self.extractor = torch.hub.load("harritaylor/torchvggish", "vggish")
-            self.linear = nn.Linear(128, embedding_dim)
+            # if embedding_dim != 128:
+            #     self.linear = nn.Linear(128, embedding_dim)
+            # else:
+            self.linear = nn.Identity()
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
@@ -42,7 +47,7 @@ class AudioEncoder(nn.Module):
 class ImageEncoder(nn.Module):
     def __init__(
         self,
-        embedding_dim,
+        # embedding_dim,
         model="inception_v3",
         transforms=None,
         trainable=False,
@@ -53,33 +58,39 @@ class ImageEncoder(nn.Module):
 
         if model == "resnet":
             self.extractor = models.resnet101(pretrained=True)
-            self.extractor.fc = nn.Linear(self.extractor.fc.in_features, embedding_dim)
-            # self.transforms = torchvision.transforms.Compose(
-            #     [
-            #         torchvision.transforms.Resize((224, 224)),
-            #         torchvision.transforms.ToTensor(),
-            #     ]
-            # )
+            self.input_size = (224, 224)
 
         if model == "inception_v3":
             self.extractor = models.inception_v3(pretrained=True, aux_logits=False)
-            self.extractor.fc = nn.Linear(self.extractor.fc.in_features, embedding_dim)
-            # self.transforms = torchvision.transforms.Compose(
-            #     [
-            #         torchvision.transforms.Resize((299, 299)),
-            #         torchvision.transforms.ToTensor(),
-            #     ]
-            # )
+            self.input_size = (299, 299)
+
+        # if embedding_dim != self.extractor.fc.out_features:
+        #     self.linear = nn.Linear(self.extractor.fc.in_features, embedding_dim)
+        # else:
+        self.linear = nn.Identity()
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
 
-    def forward(self, images):
-        # if self.transforms:
-        #     images = self.transforms(images)
+        if not self.trainable:
+            self.extractor.eval()
+
+    def forward(self, frames):
+        stack_frames = frames.dim() == 5
+        frames_shape = frames.shape
+
+        # Make batch videos into batch of images (all frames of all videos stacked)
+        if stack_frames:
+            frames = frames.view(frames_shape[0]*frames_shape[1], frames_shape[2], frames_shape[3], frames_shape[4])
         
-        features = self.extractor(images)
-        return self.dropout(self.relu(features))
+        features = self.extractor(frames)
+
+        # Undo stacking operation
+        if stack_frames:
+            features = features.view(frames_shape[0], frames_shape[1], features.shape[1])
+        
+        embedding = self.linear(features)
+        return self.dropout(self.relu(embedding))
 
 
 class DecoderRNN(nn.Module):
