@@ -115,3 +115,5 @@ dmypy.json
 
 # Datasets
 datasets/
+.vscode/settings.json
+temp.wav
