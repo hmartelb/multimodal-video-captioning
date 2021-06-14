@@ -104,15 +104,11 @@ class MSVD_Dataset(Dataset):
         # Make both features to have the same frames (drop largest)
         n_frames = min(video_features.shape[0], audio_features.shape[0])
 
-        try:        
-            video_features = video_features[0:n_frames, :]
-            audio_features = audio_features[0:n_frames, :]
+        video_features = video_features[0:n_frames, :]
+        audio_features = audio_features[0:n_frames, :]
 
-            features = np.concatenate([video_features, audio_features], axis=1)
-        except:
-            print(n_frames, video_features.shape, audio_features.shape, audio_features_file)
-            raise Exception("Data shape error")
-
+        features = np.concatenate([video_features, audio_features], axis=1)
+        
         return torch.tensor(features), torch.tensor(caption_tokens)
 
 
