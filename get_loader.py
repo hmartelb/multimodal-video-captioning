@@ -8,6 +8,7 @@ import torchvision.transforms as transforms
 from PIL import Image  # Load img
 from torch.nn.utils.rnn import pad_sequence  # pad batch
 from torch.utils.data import DataLoader, Dataset
+import pickle
 
 # We want to convert text -> numerical values
 # 1. We need a Vocabulary mapping each word to a index
@@ -41,7 +42,6 @@ class Vocabulary:
             for word in self.tokenizer_eng(sentence):
                 if word not in frequencies:
                     frequencies[word] = 1
-
                 else:
                     frequencies[word] += 1
 
@@ -54,6 +54,19 @@ class Vocabulary:
         tokenized_text = self.tokenizer_eng(text)
 
         return [self.stoi[token] if token in self.stoi else self.stoi["<UNK>"] for token in tokenized_text]
+
+    @staticmethod
+    def prebuild(sentence_list, outpath, freq_threshold=5):
+        vocab = Vocabulary(freq_threshold)
+        vocab.build_vocabulary(sentence_list)
+        vocab.save_vocab(outpath)
+
+    def save_vocab(self, path):
+        pickle.dump(self, open(path, 'wb+'))
+
+    @staticmethod
+    def load(path):
+        return pickle.load(open(path, 'rb'))
 
 
 class MSVD_Dataset(Dataset):
@@ -108,7 +121,7 @@ class MSVD_Dataset(Dataset):
         audio_features = audio_features[0:n_frames, :]
 
         features = np.concatenate([video_features, audio_features], axis=1)
-        
+
         return torch.tensor(features), torch.tensor(caption_tokens)
 
 
