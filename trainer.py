@@ -221,3 +221,30 @@ class Trainer:
             "e": entropy_loss / len(self.val_loader),
             "recon": reconstruction_loss / len(self.val_loader),
         }
+
+
+if __name__ == "__main__":
+
+    from model import DecoderRNN
+
+    dataset_folder = os.path.join("datasets", "MSVD")
+    vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
+    train_loader, train_dataset = get_loader(
+        root_dir=dataset_folder,
+        split="train",
+        batch_size=1,
+    )
+    vocab = train_dataset.vocab
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    decoder = DecoderRNN(vocab)
+    decoder = decoder.to(device)
+
+    tr = Trainer(checkpoint_name=os.path.join('checkpoints', 'test.ckpt'))
+    tr.fit(
+        decoder,
+        device,
+        epochs=1,
+        batch_size=1,
+    )
