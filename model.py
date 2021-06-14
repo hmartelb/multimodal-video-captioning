@@ -81,14 +81,14 @@ class ImageEncoder(nn.Module):
 
         # Make batch videos into batch of images (all frames of all videos stacked)
         if stack_frames:
-            frames = frames.view(frames_shape[0]*frames_shape[1], frames_shape[2], frames_shape[3], frames_shape[4])
-        
+            frames = frames.view(frames_shape[0] * frames_shape[1], frames_shape[2], frames_shape[3], frames_shape[4])
+
         features = self.extractor(frames)
 
         # Undo stacking operation
         if stack_frames:
             features = features.view(frames_shape[0], frames_shape[1], features.shape[1])
-        
+
         embedding = self.linear(features)
         return self.dropout(self.relu(embedding))
 
@@ -96,12 +96,15 @@ class ImageEncoder(nn.Module):
 class DecoderRNN(nn.Module):
     def __init__(
         self,
-        embedding_dim,
-        hidden_size,
-        vocab_size,
-        num_layers,
+        vocab,
+        embedding_dim=128,
+        hidden_size=128,
+        num_layers=1,
     ):
         super(DecoderRNN, self).__init__()
+        self.vocab = vocab
+        vocab_size = len(self.vocab)
+      
         self.embed = nn.Embedding(vocab_size, embedding_dim)
         self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers)
         self.linear = nn.Linear(hidden_size, vocab_size)
@@ -113,6 +116,25 @@ class DecoderRNN(nn.Module):
         hiddens, _ = self.lstm(embeddings)
         outputs = self.linear(hiddens)
         return outputs
+
+    def generate_caption(self, features, max_length=50):
+        result_caption = []
+
+        with torch.no_grad():
+            x = features  # Check this
+            states = None
+
+            for _ in range(max_length):
+                hiddens, states = self.lstm(x, states)
+                output = self.linear(hiddens.squeeze(0))
+                predicted = output.argmax(1)
+                result_caption.append(predicted.item())
+                x = self.embed(predicted).unsqueeze(0)
+
+                if self.vocab.itos[predicted.item()] == "<EOS>":
+                    break
+
+        return [self.vocab.itos[idx] for idx in result_caption]
 
 
 class VisualCaptioningModel(nn.Module):
