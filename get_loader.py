@@ -69,7 +69,7 @@ class MSVD_Dataset(Dataset):
         assert os.path.isdir(root_dir), "The dataset root directory does not exist"
         assert os.path.isdir(os.path.join(root_dir, "metadata")), "The dataset metadata directory does not exist"
         assert os.path.isdir(os.path.join(root_dir, "features")), "The dataset features directory does not exist"
-        assert split in ["train", "val", "test"], "Wrong split specified, must be one of ['train', 'val', 'test']"
+        assert split in ["train", "val", "test", "tiny"], "Wrong split specified, must be one of ['train', 'val', 'test']"
 
         self.captions_file = os.path.join(root_dir, "metadata", f"{split}.csv")
         assert os.path.isfile(self.captions_file), f"The captions file cannot be found {self.captions_file}"
@@ -96,12 +96,22 @@ class MSVD_Dataset(Dataset):
         video_features = np.load(video_features_file)
         audio_features = np.load(audio_features_file)
 
+        # quick fix,there are some feature in shape (128,) when number of frame is 1 
+        # e.g. 'rOic25PnIx8_1_3'
+        if len(audio_features.shape) < 2:
+            audio_features = audio_features.reshape((-1, 128))
+
         # Make both features to have the same frames (drop largest)
         n_frames = min(video_features.shape[0], audio_features.shape[0])
-        video_features = video_features[0:n_frames, :]
-        audio_features = audio_features[0:n_frames, :]
 
-        features = np.concatenate([video_features, audio_features], axis=1)
+        try:        
+            video_features = video_features[0:n_frames, :]
+            audio_features = audio_features[0:n_frames, :]
+
+            features = np.concatenate([video_features, audio_features], axis=1)
+        except:
+            print(n_frames, video_features.shape, audio_features.shape, audio_features_file)
+            raise Exception("Data shape error")
 
         return torch.tensor(features), torch.tensor(caption_tokens)
 
@@ -139,12 +149,20 @@ class MSVD_Dataset(Dataset):
 
 
 class CustomCollate:
+    '''
+    return batch data (features, captions) in the shape of:
+    features: [batchsize, length, feat_dim]
+    captions: [length, batchsize]
+    
+    '''
     def __init__(self, pad_idx):
         self.pad_idx = pad_idx
 
     def __call__(self, batch):
         features = [item[0].unsqueeze(0) for item in batch]
-        features = torch.cat(features, dim=0)
+        # features = torch.cat(features, dim=0)
+        features = [item[0] for item in batch]
+        features = pad_sequence(features, batch_first=True, padding_value=0)
         captions = [item[1] for item in batch]
         captions = pad_sequence(captions, batch_first=False, padding_value=self.pad_idx)
 
@@ -180,11 +198,13 @@ if __name__ == "__main__":
     #     [transforms.Resize((224, 224)), transforms.ToTensor(),]
     # )
 
-    train_loader, train_dataset = get_loader(root_dir=os.path.join("datasets", "MSVD"), split="train", batch_size=1)
-    val_loader, val_dataset = get_loader(root_dir=os.path.join("datasets", "MSVD"), split="val", batch_size=1)
-    test_loader, test_dataset = get_loader(root_dir=os.path.join("datasets", "MSVD"), split="test", batch_size=1)
+    dataset_folder = os.path.join("datasets", "MSVD")
+    train_loader, train_dataset = get_loader(root_dir=dataset_folder, split="train", batch_size=1)
+    val_loader, val_dataset = get_loader(root_dir=dataset_folder, split="val", batch_size=1)
+    test_loader, test_dataset = get_loader(root_dir=dataset_folder, split="test", batch_size=1, num_workers=1, shuffle=False)
 
     for loader in [train_loader, val_loader, test_loader]:
+    # for loader in [test_loader]:
         for idx, (features, captions) in enumerate(loader):
             print(idx, features.shape, captions.shape)
 
