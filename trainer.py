@@ -4,11 +4,13 @@ import os
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import transforms
 from tqdm import tqdm
 
-from get_loader import get_loader
-from losses import EntropyLoss, GlobalReconstructionLoss, LocalReconstructionLoss, TotalReconstructionLoss
+from get_loader import Vocabulary, get_loader
+from losses import (EntropyLoss, GlobalReconstructionLoss,
+                    LocalReconstructionLoss, TotalReconstructionLoss)
 
 
 class Trainer:
@@ -137,16 +139,16 @@ class Trainer:
                 features, captions = features.to(self.device), captions.to(self.device)
                 self.optimizer.zero_grad()
 
-                output, features_recons = model(features, captions, teacher_forcing_ratio)
+                output, features_recons = model.decode(features, captions)
                 loss, ce, e, recon = TotalReconstructionLoss(
                     output,
                     captions,
                     self.vocab,
-                    self.reg_lambda,
+                    0,#self.reg_lambda,
                     features,
                     features_recons,
-                    self.recon_lambda,
-                    loss_type=None,  # FIXME
+                    0,#self.recon_lambda,
+                    # loss_type=None,  # FIXME
                 )
                 loss.mean().backward()
 
@@ -189,7 +191,7 @@ class Trainer:
                 for i, (features, captions) in enumerate(progress):
                     eatures, captions = features.to(self.device), captions.to(self.device)
 
-                    output, features_recons = model(features)
+                    output, features_recons = model.decode(features)
                     loss, ce, e, recon = TotalReconstructionLoss(
                         output,
                         captions,
@@ -198,7 +200,7 @@ class Trainer:
                         features,
                         features_recons,
                         self.recon_lambda,
-                        loss_type=None,  # FIXME
+                        # loss_type=None,  # FIXME
                     )
 
                     total_loss += loss.mean().item()
@@ -225,25 +227,25 @@ class Trainer:
 
 if __name__ == "__main__":
 
-    from model import DecoderRNN
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dataset_folder = os.path.join("datasets", "MSVD")
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
-    train_loader, train_dataset = get_loader(
-        root_dir=dataset_folder,
-        split="train",
-        batch_size=1,
+    vocab = Vocabulary.load(vocab_pkl)
+
+    from models import Decoder
+
+    model = Decoder(
+        output_size=3056, # FIXME: Use vocab size. For some reason, vocab_pkl is 3201 
+        attn_size=128,
+        max_caption_len=18,
     )
-    vocab = train_dataset.vocab
+    model = model.cuda()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    decoder = DecoderRNN(vocab)
-    decoder = decoder.to(device)
-
-    tr = Trainer(checkpoint_name=os.path.join('checkpoints', 'test.ckpt'))
+    print("Start training")
+    tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
     tr.fit(
-        decoder,
+        model,
         device,
         epochs=1,
         batch_size=1,

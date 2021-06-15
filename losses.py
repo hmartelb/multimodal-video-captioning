@@ -45,7 +45,7 @@ def LocalReconstructionLoss(x, x_recon):
 def TotalReconstructionLoss(
     output,
     captions,
-    vocab,
+    # vocab,
     features=None,
     features_recons=None,
     reg_lambda=0,
@@ -53,11 +53,17 @@ def TotalReconstructionLoss(
     # loss_type=None,
     reconstruction_type='global',
 ):
-    PAD_idx = vocab.stoi["<PAD>"]
+    PAD_idx = 0 #vocab.stoi["<PAD>"] = 0
+
+    vocab_size = int(output.shape[2])
+    print(vocab_size)
+
+    print(output[1:].view(-1, vocab_size).shape)
+    print(captions[1:].contiguous().view(-1).shape)
 
     # Cross entropy loss
     cross_entropy_loss = F.nll_loss(
-        output[1:].view(-1, len(vocab)), captions[1:].contiguous().view(-1), ignore_index=PAD_idx
+        output[1:].view(-1, vocab_size), captions[1:].contiguous().view(-1), ignore_index=PAD_idx
     )
     # Entropy loss
     entropy_loss = EntropyLoss(output[1:], ignore_mask=(captions[1:] == PAD_idx))
@@ -74,3 +80,21 @@ def TotalReconstructionLoss(
     # Total loss
     loss = cross_entropy_loss + (reg_lambda * entropy_loss) + (recon_lambda * reconstruction_loss)
     return loss, cross_entropy_loss, entropy_loss, reconstruction_loss
+
+if __name__ == '__main__':
+    batch_size = 2
+    vocab_size = 3056
+    feature_size = 1128
+    max_caption_len = 18 + 2
+    seconds = 28
+
+    output = torch.rand([max_caption_len, batch_size, vocab_size])
+    captions = torch.rand([max_caption_len, batch_size])
+    features = torch.rand([batch_size, seconds, feature_size])
+
+    loss, cross_entropy_loss, entropy_loss, reconstruction_loss = TotalReconstructionLoss(
+        output, 
+        captions,
+        features,
+    )
+    print(loss.shape, cross_entropy_loss.shape, entropy_loss.shape, reconstruction_loss.shape)
