@@ -46,11 +46,12 @@ def TotalReconstructionLoss(
     output,
     captions,
     vocab,
-    reg_lambda,
     features=None,
     features_recons=None,
-    recon_lambda=None,
-    loss_type=None,
+    reg_lambda=0,
+    recon_lambda=0,
+    # loss_type=None,
+    reconstruction_type='global',
 ):
     PAD_idx = vocab.stoi["<PAD>"]
 
@@ -62,10 +63,10 @@ def TotalReconstructionLoss(
     entropy_loss = EntropyLoss(output[1:], ignore_mask=(captions[1:] == PAD_idx))
 
     # Reconstruction loss
-    if model.reconstructor is None:
+    if features_recons is None:
         reconstruction_loss = torch.zeros(1)
     else:
-        if model.reconstructor._type == "global":
+        if reconstruction_type == "global":
             reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
         else:
             reconstruction_loss = LocalReconstructionLoss(features, features_recons)
