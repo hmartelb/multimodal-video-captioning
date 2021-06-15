@@ -231,15 +231,32 @@ if __name__ == "__main__":
     ## one time setup
     # build_MSVD_vocab()
 
+    
+
     dataset_folder = os.path.join("datasets", "MSVD")
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     train_loader, train_dataset = get_loader(root_dir=dataset_folder, split="train", batch_size=32)
     val_loader, val_dataset = get_loader(root_dir=dataset_folder, split="val", batch_size=16, vocab_pkl=vocab_pkl)
     test_loader, test_dataset = get_loader(root_dir=dataset_folder, split="test", batch_size=1, shuffle=False, vocab_pkl=vocab_pkl)
 
-    for loader in [train_loader, val_loader, test_loader]:
+    print(len(train_dataset.vocab))
+
+    from models import Decoder
+    model = Decoder(
+        output_size=3056,
+        attn_size=128,
+        max_caption_len=18,
+    )
+    model = model.cuda()
+
+    for loader in [train_loader]:#, val_loader, test_loader]:
         for idx, (features, captions) in enumerate(loader):
-            print(idx, features.shape, captions.shape)
+            # print(idx, features.shape, captions.shape)
+
+            features, captions = features.cuda(), captions.cuda()
+
+            output, recons = model.decode(features, captions)
+            print(idx, features.shape, captions.shape, output.shape)
             if idx == 50:
                 break
 
