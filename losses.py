@@ -45,21 +45,19 @@ def LocalReconstructionLoss(x, x_recon):
 def TotalReconstructionLoss(
     output,
     captions,
-    # vocab,
     features=None,
     features_recons=None,
     reg_lambda=0,
     recon_lambda=0,
-    # loss_type=None,
     reconstruction_type='global',
 ):
     PAD_idx = 0 #vocab.stoi["<PAD>"] = 0
 
     vocab_size = int(output.shape[2])
-    print(vocab_size)
+    # print(vocab_size)
 
-    print(output[1:].view(-1, vocab_size).shape)
-    print(captions[1:].contiguous().view(-1).shape)
+    # print(output[1:].view(-1, vocab_size).shape)
+    # print(captions[1:].contiguous().view(-1).shape)
 
     # Cross entropy loss
     cross_entropy_loss = F.nll_loss(
@@ -69,13 +67,15 @@ def TotalReconstructionLoss(
     entropy_loss = EntropyLoss(output[1:], ignore_mask=(captions[1:] == PAD_idx))
 
     # Reconstruction loss
-    if features_recons is None:
-        reconstruction_loss = torch.zeros(1)
-    else:
-        if reconstruction_type == "global":
-            reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
-        else:
-            reconstruction_loss = LocalReconstructionLoss(features, features_recons)
+    # if features_recons is None:
+    reconstruction_loss = torch.zeros(1).cuda()
+    # else:
+    #     if reconstruction_type == "global":
+    #         reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
+    #     else:
+    #         reconstruction_loss = LocalReconstructionLoss(features, features_recons)
+
+    # print(type(cross_entropy_loss), type(reg_lambda), type(entropy_loss), type(recon_lambda), type(reconstruction_loss))
 
     # Total loss
     loss = cross_entropy_loss + (reg_lambda * entropy_loss) + (recon_lambda * reconstruction_loss)

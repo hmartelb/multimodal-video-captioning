@@ -136,19 +136,17 @@ class Trainer:
 
         with tqdm(self.train_loader) as progress:
             for i, (features, captions) in enumerate(progress):
-                features, captions = features.to(self.device), captions.to(self.device)
                 self.optimizer.zero_grad()
+                features, captions = features.to(self.device), captions.to(self.device)               
 
-                output, features_recons = model.decode(features, captions)
+                output, features_recons = model.decode(features, captions, max_caption_len=captions.shape[0])
                 loss, ce, e, recon = TotalReconstructionLoss(
                     output,
                     captions,
-                    self.vocab,
-                    0,#self.reg_lambda,
                     features,
                     features_recons,
-                    0,#self.recon_lambda,
-                    # loss_type=None,  # FIXME
+                    reg_lambda=0,
+                    recon_lambda=0,
                 )
                 loss.mean().backward()
 
@@ -189,18 +187,16 @@ class Trainer:
         with torch.no_grad():
             with tqdm(self.val_loader) as progress:
                 for i, (features, captions) in enumerate(progress):
-                    eatures, captions = features.to(self.device), captions.to(self.device)
+                    features, captions = features.to(self.device), captions.to(self.device)
 
-                    output, features_recons = model.decode(features)
+                    output, features_recons = model.decode(features, max_caption_len=captions.shape[0])
                     loss, ce, e, recon = TotalReconstructionLoss(
                         output,
                         captions,
-                        self.vocab,
-                        self.reg_lambda,
                         features,
                         features_recons,
-                        self.recon_lambda,
-                        # loss_type=None,  # FIXME
+                        reg_lambda=0,
+                        recon_lambda=0,
                     )
 
                     total_loss += loss.mean().item()
@@ -238,7 +234,7 @@ if __name__ == "__main__":
     model = Decoder(
         output_size=3056, # FIXME: Use vocab size. For some reason, vocab_pkl is 3201 
         attn_size=128,
-        max_caption_len=18,
+        max_caption_len=30,
     )
     model = model.cuda()
 
@@ -248,5 +244,5 @@ if __name__ == "__main__":
         model,
         device,
         epochs=1,
-        batch_size=1,
+        batch_size=128,
     )

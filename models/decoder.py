@@ -104,12 +104,12 @@ class Decoder(nn.Module):
 
         # Placeholoder variables initialization
         # (max_caption_len + 2 because we add 2 special tokens: <SOS> and <EOS>)
-        sentence = Variable(torch.zeros(self.max_caption_len + 2, batch_size, self.output_size)).cuda()
+        sentence = Variable(torch.zeros(self.max_caption_len, batch_size, self.output_size)).cuda()
         D, B, H = (hidden[0] if self.rnn_type == "LSTM" else hidden).shape
-        hidden_states = Variable(torch.zeros(self.max_caption_len + 2, D, B, H)).cuda()
+        hidden_states = Variable(torch.zeros(self.max_caption_len, D, B, H)).cuda()
         output = Variable(torch.cuda.LongTensor(1, batch_size).fill_(1))  # self.vocab.stoi["<SOS>"]
 
-        for t in range(1, self.max_caption_len + 2):
+        for t in range(1, self.max_caption_len):
             # Get the next word
             output, hidden, attn_weights = self.forward_word(features, hidden, output.view(1, -1))
 
@@ -126,7 +126,10 @@ class Decoder(nn.Module):
 
         return sentence, hidden_states
 
-    def decode(self, features, captions=None):
+    def decode(self, features, captions=None, max_caption_len=None):
+        if max_caption_len: 
+            self.max_caption_len = max_caption_len
+
         batch_size = features.shape[0]
 
         hidden = self._init_hidden(batch_size)
