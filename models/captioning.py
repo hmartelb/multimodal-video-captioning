@@ -10,10 +10,10 @@ from .reconstructor import GlobalReconstructor, LocalReconstructor
 
 
 
-decoder_config = {    
+DECODER_CONFIG = {
     'rnn_type'       : 'LSTM', # ['LSTM', 'GRU']
     'rnn_num_layers' : 1,
-    'rnn_birectional': False,  # Bool
+    'rnn_bidirectional': False,  # Bool
     'rnn_hidden_size': 512,
     'rnn_dropout'    : 0.5,    
     
@@ -26,12 +26,12 @@ decoder_config = {
     'max_caption_len' : 30,
 }
 
-constructor_config = {   
+RECONSTRUCTOR_CONFIG = {   
     'type'           : 'global',  # ['none', 'global', 'local']
     'rnn_type'       : 'LSTM',    # ['LSTM', 'GRU']
     'rnn_num_layers' : 1,
-    'rnn_birectional': False,     # Bool
-    'hidden_size'    : 512,       # feature_size
+    'rnn_bidirectional': False,     # Bool
+    'hidden_size'    : 1000+128,  # feature_size
     'rnn_dropout'    : 0.5,    
     'decoder_size'   : 128,       # decoder_hidden_size
     'attn_size'      : 128,       # only applied for local
@@ -49,25 +49,26 @@ class AVCaptioning(nn.Module):
         self.vocab_size = vocab_size
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
-        config = decoder_config.copy()
+        config = DECODER_CONFIG.copy()
         config['output_size'] = vocab_size
+
+        rec_config = RECONSTRUCTOR_CONFIG.copy()
+        rec_config['decoder_size'] = config['rnn_hidden_size']
+        rec_config['hidden_size'] = config['in_feature_size']
 
         decoder = FeaturesCaptioning(**config,device=device)
         self.decoder = decoder.to(device)
 
-        rec_config = constructor_config.copy()
-        rec_config['decoder_size'] = config['rnn_hidden_size']
-        rec_config['hidden_size'] = config['in_feature_size']
-        if constructor_config['type'] == "global":
+        if rec_config['type'] == "global":
             reconstructor = GlobalReconstructor(**rec_config,device=device)
             self.reconstructor = reconstructor.to(device)
-        elif constructor_config['type'] == "local":
+        elif rec_config['type'] == "local":
             reconstructor = LocalReconstructor(**rec_config,device=device)
             self.reconstructor = reconstructor.to(device)
         else:
             self.reconstructor = None
 
-        self.reconstructor_type = constructor_config['type']
+        self.reconstructor_type = rec_config['type']
         
     def forward(self, features, captions):
         outputs, rnn_hiddens = self.decoder.decode(features, captions, max_caption_len=captions.shape[0])

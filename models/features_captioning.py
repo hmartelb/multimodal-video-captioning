@@ -14,7 +14,7 @@ class FeaturesCaptioning(nn.Module):
         output_size,  # vocab_size
         rnn_type="LSTM",
         rnn_num_layers=1,
-        rnn_birectional=False,
+        rnn_bidirectional=False,
         rnn_hidden_size=128,
         rnn_dropout=0.5,
         embedding_size=128, # vocab_embedding_size
@@ -25,7 +25,7 @@ class FeaturesCaptioning(nn.Module):
         super(FeaturesCaptioning, self).__init__()
         self.rnn_type = rnn_type
         self.num_layers = rnn_num_layers
-        self.num_directions = 2 if rnn_birectional else 1
+        self.num_directions = 2 if rnn_bidirectional else 1
         self.feature_size = in_feature_size
         self.embedding_size = embedding_size
         self.hidden_size = rnn_hidden_size

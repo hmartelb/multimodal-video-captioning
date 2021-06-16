@@ -12,7 +12,7 @@ class LocalReconstructor(nn.Module):
         hidden_size,  ## feature_dim
         rnn_type="LSTM",
         rnn_num_layers=1,
-        rnn_birectional=False,
+        rnn_bidirectional=False,
         rnn_dropout=0.5,
         attn_size = 128, 
         device = 'cpu',
@@ -22,7 +22,7 @@ class LocalReconstructor(nn.Module):
         self._type = 'local'
         self.rnn_type = rnn_type
         self.num_layers = rnn_num_layers
-        self.num_directions = 2 if rnn_birectional else 1
+        self.num_directions = 2 if rnn_bidirectional else 1
         self.decoder_size = decoder_size
         self.hidden_size = hidden_size
         self.rnn_dropout_p = rnn_dropout if self.num_layers > 1 else 0
@@ -101,7 +101,7 @@ class GlobalReconstructor(nn.Module):
         hidden_size,  ## feature_dim
         rnn_type="LSTM",
         rnn_num_layers=1,
-        rnn_birectional=False,
+        rnn_bidirectional=False,
         rnn_dropout=0.5,
         device = 'cpu',
         **args,
@@ -110,7 +110,7 @@ class GlobalReconstructor(nn.Module):
         self._type = 'global'
         self.rnn_type = rnn_type
         self.num_layers = rnn_num_layers
-        self.num_directions = 2 if rnn_birectional else 1
+        self.num_directions = 2 if rnn_bidirectional else 1
         self.decoder_size = decoder_size
         self.hidden_size = hidden_size
         self.rnn_dropout_p = rnn_dropout if self.num_layers > 1 else 0

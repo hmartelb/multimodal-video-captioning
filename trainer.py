@@ -11,18 +11,25 @@ from tqdm import tqdm
 from get_loader import Vocabulary, get_loader
 from losses import (EntropyLoss, GlobalReconstructionLoss,
                     LocalReconstructionLoss, TotalReconstructionLoss)
+from models import AVCaptioning
 
 
 class TrainerConfig:
-    batch_size = 128
-    
-    epochs = 10
-    lr = 0.0001
+    batch_size   = 128
+
+    epochs       = 10
+    lr           = 0.0001
     weight_decay = 1e-5
-    optimizer = optim.Adam
-    lr_decay_gamma=0  # FIXME
-    lr_decay_patience=4  # FIXME
-    gradient_clip_value=0
+    optimizer    = optim.Adam
+    gradient_clip_value = 0
+    
+    # lr_scheduler
+    lr_decay_gamma      = 0  # FIXME
+    lr_decay_patience   = 4  # FIXME
+    
+    ## Reconstructor Regularizer 
+    reg_lambda   = 0
+    recon_lambda = 0
 
 class Trainer:
     def __init__(self, checkpoint_name, display_freq=10):
@@ -83,6 +90,8 @@ class Trainer:
             verbose=True,
         )
         self.gradient_clip_value = train_config.gradient_clip_value
+        self.reg_lambda = train_config.reg_lambda
+        self.recon_lambda = train_config.recon_lambda
         self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
 
         self.previous_epochs = 0
@@ -131,8 +140,8 @@ class Trainer:
                     captions,
                     features,
                     features_recons,
-                    reg_lambda=0,
-                    recon_lambda=0,
+                    reg_lambda=self.reg_lambda,
+                    recon_lambda=self.recon_lambda,
                     reconstruction_type=model.reconstructor_type
                 )
                 loss.mean().backward()
@@ -183,8 +192,8 @@ class Trainer:
                         captions,
                         features,
                         features_recons,
-                        reg_lambda=0,
-                        recon_lambda=0,
+                        reg_lambda=self.reg_lambda,
+                        recon_lambda=self.recon_lambda,
                         reconstruction_type=model.reconstructor_type
                     )
 

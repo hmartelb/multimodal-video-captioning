@@ -30,19 +30,6 @@ def GlobalReconstructionLoss(x, x_recon, keep_mask):
 def LocalReconstructionLoss(x, x_recon):
     return F.mse_loss(x, x_recon)
 
-
-# def ReconstructionLoss(mode='none'):
-#     assert mode in ['none', 'global', 'local'], "Wrong mode specified, must be one of ['none', 'global', 'local']"
-
-#     def f(x, x_recon, keep_mask=None):
-#         if mode == 'global':
-#             return
-#         if mode == 'local':
-#             return
-#         return torch.zeros(1)
-#     return f
-
-
 def TotalReconstructionLoss(
     output,
     captions,
