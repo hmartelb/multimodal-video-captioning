@@ -1,4 +1,5 @@
 import argparse
+import gc
 import os
 
 import torch
@@ -9,28 +10,32 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from get_loader import Vocabulary, get_loader
-from losses import ReconstructionLossBuilder, TotalReconstructionLoss
+from losses import (
+    ModalityWiseReconstructionLoss,
+    ModalityWiseReconstructionLossBuilder,
+    ReconstructionLossBuilder,
+    TotalReconstructionLoss,
+)
 from models import AVCaptioning
-
-import gc
 
 
 class TrainerConfig:
-    batch_size = 8
+    batch_size = 128
 
-    epochs = 50
-    lr = 5e-5
+    epochs = 20
+    lr = 1e-4#5e-5
     weight_decay = 1e-5
     optimizer = optim.Adam
     gradient_clip_value = 5.0
 
     # lr_scheduler
-    lr_decay_gamma = 0.5  
-    lr_decay_patience = 5  
+    lr_decay_gamma = 0.5
+    lr_decay_patience = 5
 
     ## Reconstructor Regularizer
     reg_lambda = 0  # 0.001
-    recon_lambda = 0
+    audio_recon_lambda = 0.2
+    visual_recon_lambda = 0.2
 
 
 class Trainer:
@@ -64,7 +69,6 @@ class Trainer:
         torch.save(
             {
                 "epoch": epochs,
-                # "decoder": model.state_dict(),  ## temp FIX
                 "decoder": model.decoder.state_dict(),
                 "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
                 # 'config': cls_to_dict(config),
@@ -88,14 +92,19 @@ class Trainer:
             verbose=True,
         )
         self.gradient_clip_value = train_config.gradient_clip_value
+        
         self.reg_lambda = train_config.reg_lambda
-        self.recon_lambda = train_config.recon_lambda
-        self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
+        self.audio_recon_lambda = train_config.audio_recon_lambda
+        self.visual_recon_lambda = train_config.visual_recon_lambda
 
-        self.RecLoss = ReconstructionLossBuilder(
-            reg_lambda=self.reg_lambda, recon_lambda=self.recon_lambda, reconstruction_type=model.reconstructor_type
+        self.RecLoss = ModalityWiseReconstructionLossBuilder(
+            reg_lambda=self.reg_lambda,
+            audio_recon_lambda=self.audio_recon_lambda,
+            visual_recon_lambda=self.visual_recon_lambda,
+            rec_type=model.reconstructor_type,
         )
 
+        self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
         self.previous_epochs = 0
         self.best_loss = 1e6
 
@@ -126,7 +135,8 @@ class Trainer:
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
-        reconstruction_loss = 0.0
+        audio_reconstruction_loss = 0.0
+        visual_reconstruction_loss = 0.0
 
         model.train()
 
@@ -137,21 +147,14 @@ class Trainer:
 
                 outputs, features_recons = model(features, captions)
 
-                loss, ce, e, recon = self.RecLoss(
+                loss, ce, e, a_recon, v_recon = self.RecLoss(
                     outputs,
                     captions,
-                    features,
-                    features_recons,
+                    features[:, :, 1000:],  # Audio features [1000-1128]
+                    features_recons[:, :, 1000:],
+                    features[:, :, 0:1000],  # Visual features [0-1000]
+                    features_recons[:, :, 0:1000],
                 )
-                # loss, ce, e, recon = TotalReconstructionLoss(
-                #     outputs,
-                #     captions,
-                #     features,
-                #     features_recons,
-                #     reg_lambda=0,
-                #     recon_lambda=0,
-                #     reconstruction_type=model.reconstructor_type,
-                # )
                 loss.mean().backward()
 
                 if self.gradient_clip_value > 0:
@@ -162,7 +165,8 @@ class Trainer:
                 total_loss += loss.mean().item()
                 cross_entropy_loss += ce.mean().item()
                 entropy_loss += e.mean().item()
-                reconstruction_loss += recon.mean().item()
+                audio_reconstruction_loss += a_recon.mean().item()
+                visual_reconstruction_loss += v_recon.mean().item()
 
                 if i % self.display_freq == 0:
                     progress.set_postfix(
@@ -170,7 +174,8 @@ class Trainer:
                             "total": float(total_loss / (i + 1)),
                             "ce": float(cross_entropy_loss / (i + 1)),
                             "e": float(entropy_loss / (i + 1)),
-                            "recon": float(reconstruction_loss / (i + 1)),
+                            "a_recon": float(audio_reconstruction_loss / (i + 1)),
+                            "v_recon": float(visual_reconstruction_loss / (i + 1)),
                         }
                     )
 
@@ -181,14 +186,16 @@ class Trainer:
             "total": total_loss / len(dataloader),
             "ce": cross_entropy_loss / len(dataloader),
             "e": entropy_loss / len(dataloader),
-            "recon": reconstruction_loss / len(dataloader),
+            "a_recon": audio_reconstruction_loss / len(dataloader),
+            "v_recon": visual_reconstruction_loss / len(dataloader),
         }
 
     def test(self, model, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
-        reconstruction_loss = 0.0
+        audio_reconstruction_loss = 0.0
+        visual_reconstruction_loss = 0.0
 
         model.eval()
 
@@ -198,27 +205,20 @@ class Trainer:
                     features, captions = features.to(self.device), captions.to(self.device)
 
                     outputs, features_recons = model(features, captions)
-
-                    loss, ce, e, recon = self.RecLoss(
+                    loss, ce, e, a_recon, v_recon = self.RecLoss(
                         outputs,
                         captions,
-                        features,
-                        features_recons,
+                        features[:, :, 1000:],  # Audio features [1000-1128]
+                        features_recons[:, :, 1000:],
+                        features[:, :, 0:1000],  # Visual features [0-1000]
+                        features_recons[:, :, 0:1000],
                     )
-                    # loss, ce, e, recon = TotalReconstructionLoss(
-                    #     outputs,
-                    #     captions,
-                    #     features,
-                    #     features_recons,
-                    #     reg_lambda=0,
-                    #     recon_lambda=0,
-                    #     reconstruction_type=model.reconstructor_type,
-                    # )
 
                     total_loss += loss.mean().item()
                     cross_entropy_loss += ce.mean().item()
                     entropy_loss += e.mean().item()
-                    reconstruction_loss += recon.mean().item()
+                    audio_reconstruction_loss += a_recon.mean().item()
+                    visual_reconstruction_loss += v_recon.mean().item()
 
                     if i % self.display_freq == 0:
                         progress.set_postfix(
@@ -226,7 +226,8 @@ class Trainer:
                                 "total": float(total_loss / (i + 1)),
                                 "ce": float(cross_entropy_loss / (i + 1)),
                                 "e": float(entropy_loss / (i + 1)),
-                                "recon": float(reconstruction_loss / (i + 1)),
+                                "a_recon": float(audio_reconstruction_loss / (i + 1)),
+                                "v_recon": float(visual_reconstruction_loss / (i + 1)),
                             }
                         )
 
@@ -237,7 +238,8 @@ class Trainer:
             "total": total_loss / len(dataloader),
             "ce": cross_entropy_loss / len(dataloader),
             "e": entropy_loss / len(dataloader),
-            "recon": reconstruction_loss / len(dataloader),
+            "a_recon": audio_reconstruction_loss / len(dataloader),
+            "v_recon": visual_reconstruction_loss / len(dataloader),
         }
 
 
@@ -270,6 +272,12 @@ if __name__ == "__main__":
         vocab_pkl=vocab_pkl,
     )
 
+    CHECKPOINTS_DIR = os.path.join("checkpoints")
+
+    # experiments = [
+
+    # ]
+
     model = AVCaptioning(
         vocab_size=len(vocab),
         teacher_forcing_ratio=0.5,
@@ -279,7 +287,7 @@ if __name__ == "__main__":
     model.to(device)
 
     print("Start training")
-    tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
+    tr = Trainer(checkpoint_name=os.path.join(CHECKPOINTS_DIR, "test.ckpt"))
     tr.fit(
         model,
         train_loader,
