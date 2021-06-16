@@ -21,7 +21,7 @@ class LocalReconstructor(nn.Module):
         super(LocalReconstructor, self).__init__()
         self._type = 'local'
         self.rnn_type = rnn_type
-        self.num_layers = num_layers
+        self.num_layers = rnn_num_layers
         self.num_directions = 2 if rnn_birectional else 1
         self.decoder_size = decoder_size
         self.hidden_size = hidden_size
@@ -39,7 +39,7 @@ class LocalReconstructor(nn.Module):
 
         self.attention = TemporalAttention(
             hidden_size=self.num_layers * self.num_directions * self.hidden_size,
-            feat_size=self.decoder_size,
+            feature_size=self.decoder_size,
             bottleneck_size=self.attn_size)
 
     def _init_hidden(self, batch_size):
@@ -61,7 +61,7 @@ class LocalReconstructor(nn.Module):
         last_hidden = last_hidden[-1]
         return last_hidden
 
-    def reconstruct_single(self, decoder_hidden, hidden, caption_masks):
+    def reconstruct_single(self, decoder_hiddens, hidden, caption_masks):
         last_hidden = self.get_last_hidden(hidden)
         attention_masks = caption_masks.transpose(0, 1)
         decoder_hidden, attn_weights = self.attention(last_hidden, decoder_hiddens, attention_masks)
@@ -79,8 +79,8 @@ class LocalReconstructor(nn.Module):
             decoder_hiddens.size(1),
             decoder_hiddens.size(2) * decoder_hiddens.size(3))
 
-        feats_recons = Variable(torch.zeros(self.decoder.feat_len, batch_size, self.reconstructor.hidden_size))
-        feats_recons = feats_recons.cuda()
+        feats_recons = Variable(torch.zeros(feat_len, batch_size, self.hidden_size))
+        feats_recons = feats_recons.to(self.device)
         hidden = self._init_hidden(batch_size)
         
         for t in range(feat_len):
@@ -89,7 +89,7 @@ class LocalReconstructor(nn.Module):
         feats_recons = feats_recons.transpose(0, 1)
         return feats_recons
 
-    def reconstruct(self, decoder_hiddens, outputs, captions, target_length):
+    def reconstruct(self, decoder_hiddens, outputs, captions, target_feature_length):
         caption_masks = build_caption_mask(outputs, captions)
         feats_recons = self.reconstruct_sequence(decoder_hiddens, caption_masks, target_feature_length)
         return feats_recons
@@ -184,9 +184,9 @@ class GlobalReconstructor(nn.Module):
         feats_recons = feats_recons.transpose(0, 1)
         return feats_recons
 
-    def reconstruct(self, decoder_hiddens, outputs, captions, target_length=None):
+    def reconstruct(self, decoder_hiddens, outputs, captions, target_feature_length=None):
         '''
-        target_length is useless, just to standardize the function call with global_reconstructor
+        target_feature_length is useless, just to standardize the function call with global_reconstructor
         '''
         caption_masks = build_caption_mask(outputs, captions)
         feats_recons = self.reconstruct_sequence(decoder_hiddens, caption_masks)

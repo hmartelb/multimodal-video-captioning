@@ -130,6 +130,7 @@ class Trainer:
                     features_recons,
                     reg_lambda=0,
                     recon_lambda=0,
+                    reconstruction_type=reconstructor.type
                 )
                 loss.mean().backward()
 
@@ -181,6 +182,7 @@ class Trainer:
                         features_recons,
                         reg_lambda=0,
                         recon_lambda=0,
+                        reconstruction_type=reconstructor.type
                     )
 
                     total_loss += loss.mean().item()
