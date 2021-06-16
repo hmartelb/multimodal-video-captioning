@@ -69,12 +69,12 @@ class Decoder(nn.Module):
     def _init_hidden(self, batch_size):
         if self.rnn_type == "LSTM":
             hidden = (
-                torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size).to('cpu'),
-                torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size).to('cpu'),
+                torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size).cuda(),
+                torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size).cuda(),
             )
         else:
             hidden = torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size)
-            hidden = hidden.to('cpu')
+            hidden = hidden.cuda()
         return hidden
 
     def _last_hidden(self, hidden):
@@ -86,7 +86,6 @@ class Decoder(nn.Module):
         return last_hidden
 
     def forward_word(self, features, hidden, previous_words):
-        print(previous_words.shape, self.embedding)
         embedded = self.embedding(previous_words)
 
         last_hidden = self._last_hidden(hidden)
@@ -105,10 +104,10 @@ class Decoder(nn.Module):
 
         # Placeholoder variables initialization
         # (max_caption_len + 2 because we add 2 special tokens: <SOS> and <EOS>)
-        sentence = Variable(torch.zeros(self.max_caption_len, batch_size, self.output_size)).to('cpu')
+        sentence = Variable(torch.zeros(self.max_caption_len, batch_size, self.output_size)).cuda()
         D, B, H = (hidden[0] if self.rnn_type == "LSTM" else hidden).shape
-        hidden_states = Variable(torch.zeros(self.max_caption_len, D, B, H)).to('cpu')
-        output = Variable(torch.LongTensor(1, batch_size).fill_(1)).to('cpu')  # self.vocab.stoi["<SOS>"]
+        hidden_states = Variable(torch.zeros(self.max_caption_len, D, B, H)).cuda()
+        output = Variable(torch.cuda.LongTensor(1, batch_size).fill_(1))  # self.vocab.stoi["<SOS>"]
 
         for t in range(1, self.max_caption_len):
             # Get the next word
@@ -123,7 +122,7 @@ class Decoder(nn.Module):
             # YES: take true word, NO: take prediction
             is_teacher = torch.rand(1) < self.teacher_forcing_ratio
             top1 = output.data.max(1)[1]
-            output = Variable(captions.data[t] if is_teacher else top1).to('cpu')
+            output = Variable(captions.data[t] if is_teacher else top1).cuda()
 
         return sentence, hidden_states
 
@@ -139,7 +138,7 @@ class Decoder(nn.Module):
         if captions is None:
             _, captions = outputs.max(dim=2)
         caption_masks = (captions != 0) * (captions != 2)  # self.vocab.stoi['<PAD>'] = 0, self.vocab.stoi['<EOS>'] = 2
-        caption_masks = caption_masks.to('cpu')
+        caption_masks = caption_masks.cuda()
 
         recons = None
         # if self.reconstructor is not None:
@@ -150,14 +149,14 @@ class Decoder(nn.Module):
 if __name__ == "__main__":
 
     batch_size = 32
-    features, captions = torch.rand([batch_size, 10, 1128]).to('cpu'), torch.rand([8, batch_size]).to('cpu')
+    features, captions = torch.rand([batch_size, 10, 1128]).cuda(), torch.rand([8, batch_size]).cuda()
 
     model = Decoder(
         output_size=3056,
         attn_size=128,
         max_caption_len=10,
     )
-    model = model.to('cpu')
+    model = model.cuda()
 
     output, recons = model.decode(features, captions)
         
