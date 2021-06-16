@@ -14,7 +14,13 @@ def EntropyLoss(x, ignore_mask):
 
 
 def GlobalReconstructionLoss(x, x_recon, keep_mask):
+    # Quick fix, make sure everyting is in the same device (CPU)
+    # x = x.to(x_recon.device)
+    x_recon = x_recon.to(x.device)
+    keep_mask = keep_mask.to(x.device)
+
     x = x.mean(dim=1)
+    print(x.shape, x_recon.shape, keep_mask.shape)
 
     caption_len = keep_mask.sum(dim=0)
     caption_len = caption_len.unsqueeze(1).expand(caption_len.size(0), x_recon.size(2))
@@ -25,6 +31,8 @@ def GlobalReconstructionLoss(x, x_recon, keep_mask):
 
     x_recon = keep_mask * x_recon
     x_recon = x_recon.sum(dim=1) / caption_len
+
+    # print(x.device, x_recon.device, keep_mask.device)
 
     return F.mse_loss(x, x_recon)
 
