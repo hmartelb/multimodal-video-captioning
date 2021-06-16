@@ -230,7 +230,7 @@ if __name__ == "__main__":
 
     train_loader, train_dataset = get_loader(
         root_dir=dataset_folder,
-        split="tiny", # split="train",
+        split="train",
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     model = AVCaptioning(
         vocab_size=len(vocab),
         teacher_forcing_ratio=0.5,
-        no_reconstructor=True,
+        no_reconstructor=False,
         device=device,
     ) 
     model.to(device)
