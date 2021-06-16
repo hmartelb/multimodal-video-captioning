@@ -122,7 +122,7 @@ class GlobalReconstructor(nn.Module):
         decoder_hiddens_mean_pooled = self.mean_pool_hiddens(decoder_hiddens, caption_masks)
 
         # placeholder for reconstruct features
-        feats_recons = Variable(torch.zeros(max_caption_len + 2, batch_size, self.hidden_size))
+        feats_recons = Variable(torch.zeros(max_caption_len, batch_size, self.hidden_size))
         feats_recons.to(self.device)
 
         hidden = self._init_hidden(batch_size)

@@ -89,7 +89,7 @@ class Trainer:
             print(f"\nEpoch {epoch}/{epochs}:")
 
             train_loss = self.train(model, reconstructor, train_loader)
-            val_loss = self.test(model, val_loader)
+            val_loss = self.test(model, reconstructor, val_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
@@ -159,7 +159,7 @@ class Trainer:
             "recon": reconstruction_loss / len(dataloader),
         }
 
-    def test(self, model, dataloader):
+    def test(self, model, reconstructor, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -172,9 +172,10 @@ class Trainer:
                 for i, (features, captions) in enumerate(progress):
                     features, captions = features.to(self.device), captions.to(self.device)
 
-                    output, features_recons = model.decode(features, max_caption_len=captions.shape[0])
+                    outputs, rnn_hiddens = model.decode(features, max_caption_len=captions.shape[0])
+                    features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions)
                     loss, ce, e, recon = TotalReconstructionLoss(
-                        output,
+                        outputs,
                         captions,
                         features,
                         features_recons,

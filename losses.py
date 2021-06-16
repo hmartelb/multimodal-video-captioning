@@ -68,13 +68,13 @@ def TotalReconstructionLoss(
     entropy_loss = EntropyLoss(output[1:], ignore_mask=(captions[1:] == PAD_idx))
 
     # Reconstruction loss
-    # if features_recons is None:
-    reconstruction_loss = torch.zeros(1).to(output.device)
-    # else:
-    #     if reconstruction_type == "global":
-    #         reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
-    #     else:
-    #         reconstruction_loss = LocalReconstructionLoss(features, features_recons)
+    if features_recons is None:
+        reconstruction_loss = torch.zeros(1).to(output.device)
+    else:
+        if reconstruction_type == "global":
+            reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
+        else:
+            reconstruction_loss = LocalReconstructionLoss(features, features_recons)
 
     # print(type(cross_entropy_loss), type(reg_lambda), type(entropy_loss), type(recon_lambda), type(reconstruction_loss))
 
