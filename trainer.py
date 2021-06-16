@@ -9,44 +9,49 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from get_loader import Vocabulary, get_loader
-from losses import ReconstructionLossBuilder
+from losses import ReconstructionLossBuilder, TotalReconstructionLoss
 from models import AVCaptioning
+
+import gc
 
 
 class TrainerConfig:
-    batch_size   = 128
+    batch_size = 8
 
-    epochs       = 10
-    lr           = 0.0001
+    epochs = 50
+    lr = 5e-5
     weight_decay = 1e-5
-    optimizer    = optim.Adam
-    gradient_clip_value = 0
-    
+    optimizer = optim.Adam
+    gradient_clip_value = 5.0
+
     # lr_scheduler
-    lr_decay_gamma      = 0  # FIXME
-    lr_decay_patience   = 4  # FIXME
-    
-    ## Reconstructor Regularizer 
-    reg_lambda   = 0
+    lr_decay_gamma = 0.5  
+    lr_decay_patience = 5  
+
+    ## Reconstructor Regularizer
+    reg_lambda = 0  # 0.001
     recon_lambda = 0
+
 
 class Trainer:
     def __init__(self, checkpoint_name, display_freq=10):
-        # self.train_data = train_data
-        # self.val_data = val_data
         # assert checkpoint_name.endswith(".tar"), "The checkpoint file must have .tar extension"
         self.checkpoint_name = checkpoint_name
         self.display_freq = display_freq
 
     def _load_checkpoint(self, model):
         if os.path.isfile(self.checkpoint_name):
-            print(f"Resuming training from checkpoint: {self.checkpoint_name}")
-            checkpoint = torch.load(self.checkpoint_name)
-            model.decoder.load_state_dict(checkpoint["decoder"])
-            if model.reconstructor and checkpoint["reconstructor"]:
-                model.reconstructor.load_state_dict(checkpoint["reconstructor"])
+            try:
+                print(f"Resuming training from checkpoint: {self.checkpoint_name}")
+                checkpoint = torch.load(self.checkpoint_name)
 
-            self.history = checkpoint["history"]
+                model.decoder.load_state_dict(checkpoint["decoder"])
+                if model.reconstructor and checkpoint["reconstructor"]:
+                    model.reconstructor.load_state_dict(checkpoint["reconstructor"])
+
+                self.history = checkpoint["history"]
+            except:
+                print(f"Error loading from checkpoint: {self.checkpoint_name}. \nUsing default parameters...")
         else:
             print(f"No checkpoint found, using default parameters...")
         return model
@@ -59,28 +64,22 @@ class Trainer:
         torch.save(
             {
                 "epoch": epochs,
-                'decoder': model.state_dict(), ## temp FIX
-                # "decoder": model.decoder.state_dict(),
-                # "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
+                # "decoder": model.state_dict(),  ## temp FIX
+                "decoder": model.decoder.state_dict(),
+                "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
                 # 'config': cls_to_dict(config),
                 "history": self.history,
             },
             self.checkpoint_name,
         )
 
-    def fit(
-        self,
-        model,
-        train_loader,
-        val_loader,
-        device,
-        train_config
-    ):
+    def fit(self, model, train_loader, val_loader, device, train_config):
         self.device = device
-        # kwargs = {"num_workers": 1, "pin_memory": True} if device == "cuda" else {}
 
         # Training utils
-        self.optimizer = train_config.optimizer(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
+        self.optimizer = train_config.optimizer(
+            model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay, amsgrad=True
+        )
         self.lr_scheduler = ReduceLROnPlateau(
             self.optimizer,
             mode="min",
@@ -94,9 +93,7 @@ class Trainer:
         self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
 
         self.RecLoss = ReconstructionLossBuilder(
-            reg_lambda=self.reg_lambda,
-            recon_lambda=self.recon_lambda,
-            reconstruction_type=model.reconstructor_type
+            reg_lambda=self.reg_lambda, recon_lambda=self.recon_lambda, reconstruction_type=model.reconstructor_type
         )
 
         self.previous_epochs = 0
@@ -136,16 +133,25 @@ class Trainer:
         with tqdm(dataloader, desc="TRAIN") as progress:
             for i, (features, captions) in enumerate(progress):
                 self.optimizer.zero_grad()
-                features, captions = features.to(self.device), captions.to(self.device)               
+                features, captions = features.to(self.device), captions.to(self.device)
 
                 outputs, features_recons = model(features, captions)
-                
+
                 loss, ce, e, recon = self.RecLoss(
                     outputs,
                     captions,
                     features,
                     features_recons,
                 )
+                # loss, ce, e, recon = TotalReconstructionLoss(
+                #     outputs,
+                #     captions,
+                #     features,
+                #     features_recons,
+                #     reg_lambda=0,
+                #     recon_lambda=0,
+                #     reconstruction_type=model.reconstructor_type,
+                # )
                 loss.mean().backward()
 
                 if self.gradient_clip_value > 0:
@@ -167,6 +173,10 @@ class Trainer:
                             "recon": float(reconstruction_loss / (i + 1)),
                         }
                     )
+
+        # Garbage collector (fix memory allocation problems ? )
+        gc.collect()
+
         return {
             "total": total_loss / len(dataloader),
             "ce": cross_entropy_loss / len(dataloader),
@@ -195,6 +205,15 @@ class Trainer:
                         features,
                         features_recons,
                     )
+                    # loss, ce, e, recon = TotalReconstructionLoss(
+                    #     outputs,
+                    #     captions,
+                    #     features,
+                    #     features_recons,
+                    #     reg_lambda=0,
+                    #     recon_lambda=0,
+                    #     reconstruction_type=model.reconstructor_type,
+                    # )
 
                     total_loss += loss.mean().item()
                     cross_entropy_loss += ce.mean().item()
@@ -210,6 +229,10 @@ class Trainer:
                                 "recon": float(reconstruction_loss / (i + 1)),
                             }
                         )
+
+        # Garbage collector (fix memory allocation problems ? )
+        gc.collect()
+
         return {
             "total": total_loss / len(dataloader),
             "ce": cross_entropy_loss / len(dataloader),
@@ -217,8 +240,12 @@ class Trainer:
             "recon": reconstruction_loss / len(dataloader),
         }
 
+
 if __name__ == "__main__":
     from models import FeaturesCaptioning
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -228,15 +255,17 @@ if __name__ == "__main__":
 
     train_config = TrainerConfig()
 
+    DEBUG = False
+
     train_loader, train_dataset = get_loader(
         root_dir=dataset_folder,
-        split="train",
+        split="tiny" if DEBUG else "train",
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
     val_loader, _ = get_loader(
         root_dir=dataset_folder,
-        split="tiny", # split="val",
+        split="tiny" if DEBUG else "val",
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
@@ -246,7 +275,7 @@ if __name__ == "__main__":
         teacher_forcing_ratio=0.5,
         no_reconstructor=False,
         device=device,
-    ) 
+    )
     model.to(device)
 
     print("Start training")
@@ -256,5 +285,5 @@ if __name__ == "__main__":
         train_loader,
         val_loader,
         device,
-        train_config
+        train_config,
     )
