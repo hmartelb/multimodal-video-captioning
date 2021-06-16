@@ -9,9 +9,26 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from get_loader import Vocabulary, get_loader
-from losses import (EntropyLoss, GlobalReconstructionLoss,
-                    LocalReconstructionLoss, TotalReconstructionLoss)
+from losses import ReconstructionLossBuilder
+from models import AVCaptioning
 
+
+class TrainerConfig:
+    batch_size   = 128
+
+    epochs       = 10
+    lr           = 0.0001
+    weight_decay = 1e-5
+    optimizer    = optim.Adam
+    gradient_clip_value = 0
+    
+    # lr_scheduler
+    lr_decay_gamma      = 0  # FIXME
+    lr_decay_patience   = 4  # FIXME
+    
+    ## Reconstructor Regularizer 
+    reg_lambda   = 0
+    recon_lambda = 0
 
 class Trainer:
     def __init__(self, checkpoint_name, display_freq=10):
@@ -54,41 +71,42 @@ class Trainer:
     def fit(
         self,
         model,
-        reconstructor,
         train_loader,
         val_loader,
         device,
-        epochs=10,
-        lr=0.0001,
-        weight_decay=1e-5,
-        optimizer=optim.Adam,
-        lr_decay_gamma=0,  # FIXME
-        lr_decay_patience=4,  # FIXME
-        gradient_clip_value=0,
+        train_config
     ):
         self.device = device
         # kwargs = {"num_workers": 1, "pin_memory": True} if device == "cuda" else {}
 
         # Training utils
-        self.optimizer = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = train_config.optimizer(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
         self.lr_scheduler = ReduceLROnPlateau(
             self.optimizer,
             mode="min",
-            factor=lr_decay_gamma,
-            patience=lr_decay_patience,
+            factor=train_config.lr_decay_gamma,
+            patience=train_config.lr_decay_patience,
             verbose=True,
         )
-        self.gradient_clip_value = gradient_clip_value
+        self.gradient_clip_value = train_config.gradient_clip_value
+        self.reg_lambda = train_config.reg_lambda
+        self.recon_lambda = train_config.recon_lambda
         self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
+
+        self.RecLoss = ReconstructionLossBuilder(
+            reg_lambda=self.reg_lambda,
+            recon_lambda=self.recon_lambda,
+            reconstruction_type=model.reconstructor_type
+        )
 
         self.previous_epochs = 0
         self.best_loss = 1e6
 
         # Start training
-        for epoch in range(self.previous_epochs + 1, epochs + 1):
-            print(f"\nEpoch {epoch}/{epochs}:")
+        for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
+            print(f"\nEpoch {epoch}/{train_config.epochs}:")
 
-            train_loss = self.train(model, reconstructor, train_loader)
+            train_loss = self.train(model, train_loader)
             val_loss = self.test(model, val_loader)
 
             self.history["train_loss"].append(train_loss)
@@ -107,7 +125,7 @@ class Trainer:
 
         return self.history
 
-    def train(self, model, reconstructor, dataloader):
+    def train(self, model, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -120,16 +138,13 @@ class Trainer:
                 self.optimizer.zero_grad()
                 features, captions = features.to(self.device), captions.to(self.device)               
 
-                outputs, rnn_hiddens = model.decode(features, captions, max_caption_len=captions.shape[0])
-                features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions)
+                outputs, features_recons = model(features, captions)
                 
-                loss, ce, e, recon = TotalReconstructionLoss(
+                loss, ce, e, recon = self.RecLoss(
                     outputs,
                     captions,
                     features,
                     features_recons,
-                    reg_lambda=0,
-                    recon_lambda=0,
                 )
                 loss.mean().backward()
 
@@ -172,14 +187,13 @@ class Trainer:
                 for i, (features, captions) in enumerate(progress):
                     features, captions = features.to(self.device), captions.to(self.device)
 
-                    output, features_recons = model.decode(features, max_caption_len=captions.shape[0])
-                    loss, ce, e, recon = TotalReconstructionLoss(
-                        output,
+                    outputs, features_recons = model(features, captions)
+
+                    loss, ce, e, recon = self.RecLoss(
+                        outputs,
                         captions,
                         features,
                         features_recons,
-                        reg_lambda=0,
-                        recon_lambda=0,
                     )
 
                     total_loss += loss.mean().item()
@@ -203,76 +217,44 @@ class Trainer:
             "recon": reconstruction_loss / len(dataloader),
         }
 
-
-decoder_config = {    
-    'rnn_type'       : 'LSTM', # ['LSTM', 'GRU']
-    'rnn_num_layers' : 1,
-    'rnn_birectional': False,  # Bool
-    'rnn_hidden_size': 512,
-    'rnn_dropout'    : 0.5,    
-    
-    'in_feature_size': 1000+128,
-    'embedding_size' : 128,
-    'attn_size'      : 128,
-    'output_size'    : 3201, #Vocab Size
-
-    'rnn_teacher_forcing_ratio' : 1.0,
-    'max_caption_len' : 30,
-}
-
-constructor_config = {   
-    'type'           : 'global',  # ['global', 'local']
-    'rnn_type'       : 'LSTM',    # ['LSTM', 'GRU']
-    'rnn_num_layers' : 1,
-    'rnn_birectional': False,     # Bool
-    'hidden_size'    : 512,       # feature_size
-    'rnn_dropout'    : 0.5,    
-    'decoder_size'   : 128,       # decoder_hidden_size
-    'attn_size'      : 128,       # only applied for local
-}
-
 if __name__ == "__main__":
     from models import FeaturesCaptioning
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 128
 
     dataset_folder = os.path.join("datasets", "MSVD")
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     vocab = Vocabulary.load(vocab_pkl)
 
+    train_config = TrainerConfig()
+
     train_loader, train_dataset = get_loader(
         root_dir=dataset_folder,
-        split="train",
-        batch_size=batch_size,
+        split="tiny", # split="train",
+        batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
     val_loader, _ = get_loader(
         root_dir=dataset_folder,
-        split="val",
-        batch_size=batch_size,
+        split="tiny", # split="val",
+        batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
 
-    config = decoder_config.copy()
-    config['output_size'] = len(vocab)
-
-    model = FeaturesCaptioning(**config,device=device)
-    model = model.to(device)
-
-    rec_config = constructor_config.copy()
-    rec_config['decoder_size'] = config['rnn_hidden_size']
-    rec_config['hidden_size'] = config['in_feature_size']
-    reconstructor = GlobalReconstructor(**rec_config,device=device)
-    reconstructor = model.to(device)
+    model = AVCaptioning(
+        vocab_size=len(vocab),
+        teacher_forcing_ratio=0.5,
+        no_reconstructor=True,
+        device=device,
+    ) 
+    model.to(device)
 
     print("Start training")
     tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
     tr.fit(
         model,
-        reconstructor,
         train_loader,
         val_loader,
         device,
-        epochs=1,
+        train_config
     )

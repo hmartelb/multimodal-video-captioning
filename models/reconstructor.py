@@ -6,16 +6,28 @@ from torch.autograd import Variable
 from .temporal_attention import TemporalAttention
 
 class LocalReconstructor(nn.Module):
-    def __init__(self, rnn_type, num_layers, num_directions, decoder_size, hidden_size, attn_size, rnn_dropout):
+    def __init__(
+        self, 
+        decoder_size, ## vocab_size
+        hidden_size,  ## feature_dim
+        rnn_type="LSTM",
+        rnn_num_layers=1,
+        rnn_bidirectional=False,
+        rnn_dropout=0.5,
+        attn_size = 128, 
+        device = 'cpu',
+        **args,
+    ):
         super(LocalReconstructor, self).__init__()
         self._type = 'local'
         self.rnn_type = rnn_type
-        self.num_layers = num_layers
-        self.num_directions = num_directions
+        self.num_layers = rnn_num_layers
+        self.num_directions = 2 if rnn_bidirectional else 1
         self.decoder_size = decoder_size
-        self.hidden_size = hidden_size ## feature_dim
+        self.hidden_size = hidden_size
+        self.rnn_dropout_p = rnn_dropout if self.num_layers > 1 else 0
         self.attn_size = attn_size
-        self.rnn_dropout_p = rnn_dropout
+        self.device = device
 
         RNN = nn.LSTM if self.rnn_type == 'LSTM' else nn.GRU
         self.rnn = RNN(
@@ -27,8 +39,19 @@ class LocalReconstructor(nn.Module):
 
         self.attention = TemporalAttention(
             hidden_size=self.num_layers * self.num_directions * self.hidden_size,
-            feat_size=self.decoder_size,
+            feature_size=self.decoder_size,
             bottleneck_size=self.attn_size)
+
+    def _init_hidden(self, batch_size):
+        if self.rnn_type == "LSTM":
+            hidden = (
+                torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size).to(self.device),
+                torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size).to(self.device),
+            )
+        else:
+            hidden = torch.zeros(self.num_layers * self.num_directions, batch_size, self.hidden_size)
+            hidden = hidden.to(self.device)
+        return hidden
 
     def get_last_hidden(self, hidden):
         last_hidden = hidden[0] if isinstance(hidden, tuple) else hidden
@@ -38,7 +61,7 @@ class LocalReconstructor(nn.Module):
         last_hidden = last_hidden[-1]
         return last_hidden
 
-    def forward(self, decoder_hiddens, hidden, caption_masks):
+    def reconstruct_single(self, decoder_hiddens, hidden, caption_masks):
         last_hidden = self.get_last_hidden(hidden)
         attention_masks = caption_masks.transpose(0, 1)
         decoder_hidden, attn_weights = self.attention(last_hidden, decoder_hiddens, attention_masks)
@@ -47,6 +70,29 @@ class LocalReconstructor(nn.Module):
         output, hidden = self.rnn(decoder_hidden, hidden)
         return output, hidden
 
+    def reconstruct_sequence(self, decoder_hiddens, caption_masks, feat_len):
+        batch_size = decoder_hiddens.shape[2]
+
+        decoder_hiddens = decoder_hiddens.permute(2, 0, 1, 3)
+        decoder_hiddens = decoder_hiddens.view(
+            decoder_hiddens.size(0),
+            decoder_hiddens.size(1),
+            decoder_hiddens.size(2) * decoder_hiddens.size(3))
+
+        feats_recons = Variable(torch.zeros(feat_len, batch_size, self.hidden_size))
+        feats_recons = feats_recons.to(self.device)
+        hidden = self._init_hidden(batch_size)
+        
+        for t in range(feat_len):
+            _, hidden = self.reconstruct_single(decoder_hiddens, hidden, caption_masks)
+            feats_recons[t] = hidden[0] if self.rnn_type == 'LSTM' else hidden
+        feats_recons = feats_recons.transpose(0, 1)
+        return feats_recons
+
+    def reconstruct(self, decoder_hiddens, outputs, captions, target_feature_length):
+        caption_masks = build_caption_mask(outputs, captions)
+        feats_recons = self.reconstruct_sequence(decoder_hiddens, caption_masks, target_feature_length)
+        return feats_recons
 
 class GlobalReconstructor(nn.Module):
     def __init__(
@@ -55,7 +101,7 @@ class GlobalReconstructor(nn.Module):
         hidden_size,  ## feature_dim
         rnn_type="LSTM",
         rnn_num_layers=1,
-        rnn_birectional=False,
+        rnn_bidirectional=False,
         rnn_dropout=0.5,
         device = 'cpu',
         **args,
@@ -64,7 +110,7 @@ class GlobalReconstructor(nn.Module):
         self._type = 'global'
         self.rnn_type = rnn_type
         self.num_layers = rnn_num_layers
-        self.num_directions = 2 if rnn_birectional else 1
+        self.num_directions = 2 if rnn_bidirectional else 1
         self.decoder_size = decoder_size
         self.hidden_size = hidden_size
         self.rnn_dropout_p = rnn_dropout if self.num_layers > 1 else 0
@@ -122,7 +168,7 @@ class GlobalReconstructor(nn.Module):
         decoder_hiddens_mean_pooled = self.mean_pool_hiddens(decoder_hiddens, caption_masks)
 
         # placeholder for reconstruct features
-        feats_recons = Variable(torch.zeros(max_caption_len + 2, batch_size, self.hidden_size))
+        feats_recons = Variable(torch.zeros(max_caption_len, batch_size, self.hidden_size))
         feats_recons.to(self.device)
 
         hidden = self._init_hidden(batch_size)
@@ -137,7 +183,10 @@ class GlobalReconstructor(nn.Module):
         feats_recons = feats_recons.transpose(0, 1)
         return feats_recons
 
-    def reconstruct(self, decoder_hiddens, outputs, captions):
+    def reconstruct(self, decoder_hiddens, outputs, captions, target_feature_length=None):
+        '''
+        target_feature_length is useless, just to standardize the function call with global_reconstructor
+        '''
         caption_masks = build_caption_mask(outputs, captions)
         feats_recons = self.reconstruct_sequence(decoder_hiddens, caption_masks)
         return feats_recons

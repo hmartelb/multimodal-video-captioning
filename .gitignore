@@ -117,4 +117,5 @@ dmypy.json
 datasets/
 .vscode/settings.json
 temp.wav
-*.ckpt
+nb/checkpoints/
+checkpoints/

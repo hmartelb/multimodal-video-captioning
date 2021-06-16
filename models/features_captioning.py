@@ -14,7 +14,7 @@ class FeaturesCaptioning(nn.Module):
         output_size,  # vocab_size
         rnn_type="LSTM",
         rnn_num_layers=1,
-        rnn_birectional=False,
+        rnn_bidirectional=False,
         rnn_hidden_size=128,
         rnn_dropout=0.5,
         embedding_size=128, # vocab_embedding_size
@@ -25,7 +25,7 @@ class FeaturesCaptioning(nn.Module):
         super(FeaturesCaptioning, self).__init__()
         self.rnn_type = rnn_type
         self.num_layers = rnn_num_layers
-        self.num_directions = 2 if rnn_birectional else 1
+        self.num_directions = 2 if rnn_bidirectional else 1
         self.feature_size = in_feature_size
         self.embedding_size = embedding_size
         self.hidden_size = rnn_hidden_size
@@ -127,14 +127,4 @@ class FeaturesCaptioning(nn.Module):
         outputs, decoder_hiddens = self.forward_sentence(features, captions, hidden, max_caption_len, teacher_forcing_ratio)
 
         return outputs, decoder_hiddens
-
-        # if captions is None:
-        #     _, captions = outputs.max(dim=2)
-        # caption_masks = (captions != 0) * (captions != 2)  # self.vocab.stoi['<PAD>'] = 0, self.vocab.stoi['<EOS>'] = 2
-        # caption_masks = caption_masks.to(self.device)
-
-        # recons = None # TODO: reconstructiong using decoder_hiddens
-        # # if self.reconstructor is not None:
-        # #     recons = self.forward_reconstructor(batch_size, decoder_hiddens, caption_masks)
-        # return outputs, recons
 
