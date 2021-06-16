@@ -21,9 +21,6 @@ DECODER_CONFIG = {
     'embedding_size' : 128,
     'attn_size'      : 128,
     'output_size'    : 3201, #Vocab Size
-
-    'rnn_teacher_forcing_ratio' : 1.0,
-    'max_caption_len' : 30,
 }
 
 RECONSTRUCTOR_CONFIG = {   
@@ -73,6 +70,16 @@ class AVCaptioning(nn.Module):
             self.reconstructor = None
 
         self.reconstructor_type = rec_config['type']
+
+        ## Message
+        print("Initializing Model...")
+        print(
+            "Decoder      :", config['rnn_type'], 
+            'In:', config['in_feature_size'], 
+            'Out:', config['output_size'],
+            'Hidden:', config['rnn_hidden_size']
+        )
+        print("Reconstuctor :", rec_config['type'])
         
     def forward(self, features, captions):
         outputs, rnn_hiddens = self.decoder.decode(

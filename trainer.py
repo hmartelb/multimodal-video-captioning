@@ -243,7 +243,8 @@ if __name__ == "__main__":
 
     model = AVCaptioning(
         vocab_size=len(vocab),
-        teacher_forcing_ratio=0.0,
+        teacher_forcing_ratio=0.5,
+        no_reconstructor=True,
         device=device,
     ) 
     model.to(device)
