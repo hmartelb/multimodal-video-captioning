@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from functools import partial
+
 
 def EntropyLoss(x, ignore_mask):
     b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
@@ -70,6 +72,15 @@ def TotalReconstructionLoss(
     # Total loss
     loss = cross_entropy_loss + (reg_lambda * entropy_loss) + (recon_lambda * reconstruction_loss)
     return loss, cross_entropy_loss, entropy_loss, reconstruction_loss
+
+def ReconstructionLossBuilder(reg_lambda, recon_lambda, reconstruction_type):
+    assert reconstruction_type in ['none', 'global', 'local'], "Wrong mode specified, must be one of ['none', 'global', 'local']"
+    return partial(
+        TotalReconstructionLoss, 
+        reg_lambda=reg_lambda, 
+        recon_lambda=recon_lambda, 
+        reconstruction_type=reconstruction_type
+    )
 
 if __name__ == '__main__':
     batch_size = 2

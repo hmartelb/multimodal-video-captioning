@@ -9,8 +9,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from get_loader import Vocabulary, get_loader
-from losses import (EntropyLoss, GlobalReconstructionLoss,
-                    LocalReconstructionLoss, TotalReconstructionLoss)
+from losses import ReconstructionLossBuilder
 from models import AVCaptioning
 
 
@@ -94,6 +93,12 @@ class Trainer:
         self.recon_lambda = train_config.recon_lambda
         self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
 
+        self.RecLoss = ReconstructionLossBuilder(
+            reg_lambda=self.reg_lambda,
+            recon_lambda=self.recon_lambda,
+            reconstruction_type=model.reconstructor_type
+        )
+
         self.previous_epochs = 0
         self.best_loss = 1e6
 
@@ -135,14 +140,11 @@ class Trainer:
 
                 outputs, features_recons = model(features, captions)
                 
-                loss, ce, e, recon = TotalReconstructionLoss(
+                loss, ce, e, recon = self.RecLoss(
                     outputs,
                     captions,
                     features,
                     features_recons,
-                    reg_lambda=self.reg_lambda,
-                    recon_lambda=self.recon_lambda,
-                    reconstruction_type=model.reconstructor_type
                 )
                 loss.mean().backward()
 
@@ -187,14 +189,11 @@ class Trainer:
 
                     outputs, features_recons = model(features, captions)
 
-                    loss, ce, e, recon = TotalReconstructionLoss(
+                    loss, ce, e, recon = self.RecLoss(
                         outputs,
                         captions,
                         features,
                         features_recons,
-                        reg_lambda=self.reg_lambda,
-                        recon_lambda=self.recon_lambda,
-                        reconstruction_type=model.reconstructor_type
                     )
 
                     total_loss += loss.mean().item()
@@ -231,13 +230,13 @@ if __name__ == "__main__":
 
     train_loader, train_dataset = get_loader(
         root_dir=dataset_folder,
-        split="train",
+        split="tiny", # split="train",
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
     val_loader, _ = get_loader(
         root_dir=dataset_folder,
-        split="val",
+        split="tiny", # split="val",
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
