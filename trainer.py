@@ -13,6 +13,17 @@ from losses import (EntropyLoss, GlobalReconstructionLoss,
                     LocalReconstructionLoss, TotalReconstructionLoss)
 
 
+class TrainerConfig:
+    batch_size = 128
+    
+    epochs = 10
+    lr = 0.0001
+    weight_decay = 1e-5
+    optimizer = optim.Adam
+    lr_decay_gamma=0  # FIXME
+    lr_decay_patience=4  # FIXME
+    gradient_clip_value=0
+
 class Trainer:
     def __init__(self, checkpoint_name, display_freq=10):
         # self.train_data = train_data
@@ -57,35 +68,29 @@ class Trainer:
         train_loader,
         val_loader,
         device,
-        epochs=10,
-        lr=0.0001,
-        weight_decay=1e-5,
-        optimizer=optim.Adam,
-        lr_decay_gamma=0,  # FIXME
-        lr_decay_patience=4,  # FIXME
-        gradient_clip_value=0,
+        train_config
     ):
         self.device = device
         # kwargs = {"num_workers": 1, "pin_memory": True} if device == "cuda" else {}
 
         # Training utils
-        self.optimizer = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = train_config.optimizer(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
         self.lr_scheduler = ReduceLROnPlateau(
             self.optimizer,
             mode="min",
-            factor=lr_decay_gamma,
-            patience=lr_decay_patience,
+            factor=train_config.lr_decay_gamma,
+            patience=train_config.lr_decay_patience,
             verbose=True,
         )
-        self.gradient_clip_value = gradient_clip_value
+        self.gradient_clip_value = train_config.gradient_clip_value
         self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
 
         self.previous_epochs = 0
         self.best_loss = 1e6
 
         # Start training
-        for epoch in range(self.previous_epochs + 1, epochs + 1):
-            print(f"\nEpoch {epoch}/{epochs}:")
+        for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
+            print(f"\nEpoch {epoch}/{train_config.epochs}:")
 
             train_loss = self.train(model, train_loader)
             val_loss = self.test(model, val_loader)
@@ -208,44 +213,39 @@ if __name__ == "__main__":
     from models import FeaturesCaptioning
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 128
 
     dataset_folder = os.path.join("datasets", "MSVD")
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     vocab = Vocabulary.load(vocab_pkl)
 
+    train_config = TrainerConfig()
+
     train_loader, train_dataset = get_loader(
         root_dir=dataset_folder,
         split="train",
-        batch_size=batch_size,
+        batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
     val_loader, _ = get_loader(
         root_dir=dataset_folder,
         split="val",
-        batch_size=batch_size,
+        batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
 
-    config = decoder_config.copy()
-    config['output_size'] = len(vocab)
-
-    model = FeaturesCaptioning(**config,device=device)
-    model = model.to(device)
-
-    rec_config = constructor_config.copy()
-    rec_config['decoder_size'] = config['rnn_hidden_size']
-    rec_config['hidden_size'] = config['in_feature_size']
-    reconstructor = GlobalReconstructor(**rec_config,device=device)
-    reconstructor = model.to(device)
+    model = AVCaptioning(
+        vocab_size=len(vocab),
+        teacher_forcing_ratio=0.0,
+        device=device,
+    ) 
+    model.to(device)
 
     print("Start training")
     tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
     tr.fit(
         model,
-        reconstructor,
         train_loader,
         val_loader,
         device,
-        epochs=1,
+        train_config
     )
