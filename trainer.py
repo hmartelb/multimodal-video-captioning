@@ -121,7 +121,7 @@ class Trainer:
                 features, captions = features.to(self.device), captions.to(self.device)               
 
                 outputs, rnn_hiddens = model.decode(features, captions, max_caption_len=captions.shape[0])
-                features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions)
+                features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions, features.shape[1])
                 
                 loss, ce, e, recon = TotalReconstructionLoss(
                     outputs,
@@ -173,7 +173,7 @@ class Trainer:
                     features, captions = features.to(self.device), captions.to(self.device)
 
                     outputs, rnn_hiddens = model.decode(features, max_caption_len=captions.shape[0])
-                    features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions)
+                    features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions, features.shape[1])
                     loss, ce, e, recon = TotalReconstructionLoss(
                         outputs,
                         captions,
