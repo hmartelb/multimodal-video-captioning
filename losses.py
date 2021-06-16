@@ -16,9 +16,9 @@ def GlobalReconstructionLoss(x, x_recon, keep_mask):
 
     caption_len = keep_mask.sum(dim=0)
     caption_len = caption_len.unsqueeze(1).expand(caption_len.size(0), x_recon.size(2))
-    caption_len = caption_len.type(torch.cuda.FloatTensor)
+    caption_len = caption_len.type(torch.FloatTensor)
 
-    keep_mask = keep_mask.transpose(0, 1).unsqueeze(2).expand_as(x_recon).type(torch.cuda.FloatTensor)
+    keep_mask = keep_mask.transpose(0, 1).unsqueeze(2).expand_as(x_recon).type(torch.FloatTensor)
 
     x_recon = keep_mask * x_recon
     x_recon = x_recon.sum(dim=1) / caption_len
@@ -68,7 +68,7 @@ def TotalReconstructionLoss(
 
     # Reconstruction loss
     # if features_recons is None:
-    reconstruction_loss = torch.zeros(1).cuda()
+    reconstruction_loss = torch.zeros(1).to('cpu')
     # else:
     #     if reconstruction_type == "global":
     #         reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
