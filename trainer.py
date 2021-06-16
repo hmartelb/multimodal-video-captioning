@@ -53,6 +53,8 @@ class Trainer:
     def fit(
         self,
         model,
+        train_loader,
+        val_loader,
         device,
         epochs=10,
         batch_size=16,
@@ -70,22 +72,24 @@ class Trainer:
         # self.val_loader = torch.utils.data.DataLoader(self.val_data, batch_size=batch_size, **kwargs)
 
         # Get dataloaders and vocab
-        dataset_folder = os.path.join("datasets", "MSVD")
-        vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
-        self.train_loader, train_dataset = get_loader(
-            root_dir=dataset_folder,
-            split="train",
-            batch_size=batch_size,
-        )
-        self.val_loader, _ = get_loader(
-            root_dir=dataset_folder,
-            split="val",
-            batch_size=batch_size,
-            vocab_pkl=vocab_pkl,
-        )
-        self.vocab = train_dataset.vocab
-        print(f"Data loaders ready: {dataset_folder}")
-        print(f"Vocab size: {len(self.vocab)}")
+        # dataset_folder = os.path.join("datasets", "MSVD")
+        # vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
+        # self.train_loader, train_dataset = get_loader(
+        #     root_dir=dataset_folder,
+        #     split="train",
+        #     batch_size=batch_size,
+        # )
+        # self.val_loader, _ = get_loader(
+        #     root_dir=dataset_folder,
+        #     split="val",
+        #     batch_size=batch_size,
+        #     vocab_pkl=vocab_pkl,
+        # )
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        # self.vocab = train_dataset.vocab
+        # print(f"Data loaders ready: {dataset_folder}")
+        # print(f"Vocab size: {len(self.vocab)}")
 
         # Training utils
         self.optimizer = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -229,6 +233,19 @@ if __name__ == "__main__":
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     vocab = Vocabulary.load(vocab_pkl)
 
+    train_loader, train_dataset = get_loader(
+        root_dir=dataset_folder,
+        split="train",
+        batch_size=batch_size,
+        vocab_pkl=vocab_pkl,
+    )
+    val_loader, _ = get_loader(
+        root_dir=dataset_folder,
+        split="val",
+        batch_size=batch_size,
+        vocab_pkl=vocab_pkl,
+    )
+
     from models import Decoder
 
     model = Decoder(
@@ -242,6 +259,8 @@ if __name__ == "__main__":
     tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
     tr.fit(
         model,
+        train_loader,
+        val_loader,
         device,
         epochs=1,
         batch_size=128,
