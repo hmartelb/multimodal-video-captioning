@@ -9,9 +9,26 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from get_loader import Vocabulary, get_loader
-from losses import (EntropyLoss, GlobalReconstructionLoss,
-                    LocalReconstructionLoss, TotalReconstructionLoss)
+from losses import ReconstructionLossBuilder
+from models import AVCaptioning
 
+
+class TrainerConfig:
+    batch_size   = 128
+
+    epochs       = 10
+    lr           = 0.0001
+    weight_decay = 1e-5
+    optimizer    = optim.Adam
+    gradient_clip_value = 0
+    
+    # lr_scheduler
+    lr_decay_gamma      = 0  # FIXME
+    lr_decay_patience   = 4  # FIXME
+    
+    ## Reconstructor Regularizer 
+    reg_lambda   = 0
+    recon_lambda = 0
 
 class Trainer:
     def __init__(self, checkpoint_name, display_freq=10):
@@ -42,8 +59,9 @@ class Trainer:
         torch.save(
             {
                 "epoch": epochs,
-                "decoder": model.decoder.state_dict(),
-                "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
+                'decoder': model.state_dict(), ## temp FIX
+                # "decoder": model.decoder.state_dict(),
+                # "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
                 # 'config': cls_to_dict(config),
                 "history": self.history,
             },
@@ -53,61 +71,43 @@ class Trainer:
     def fit(
         self,
         model,
+        train_loader,
+        val_loader,
         device,
-        epochs=10,
-        batch_size=16,
-        lr=0.0001,
-        weight_decay=1e-5,
-        optimizer=optim.Adam,
-        lr_decay_gamma=0,  # FIXME
-        lr_decay_patience=4,  # FIXME
-        gradient_clip_value=0,
+        train_config
     ):
-        # Get the device placement and make data loaders
         self.device = device
         # kwargs = {"num_workers": 1, "pin_memory": True} if device == "cuda" else {}
-        # self.train_loader = torch.utils.data.DataLoader(self.train_data, batch_size=batch_size, **kwargs)
-        # self.val_loader = torch.utils.data.DataLoader(self.val_data, batch_size=batch_size, **kwargs)
-
-        # Get dataloaders and vocab
-        dataset_folder = os.path.join("datasets", "MSVD")
-        vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
-        self.train_loader, train_dataset = get_loader(
-            root_dir=dataset_folder,
-            split="train",
-            batch_size=batch_size,
-        )
-        self.val_loader, _ = get_loader(
-            root_dir=dataset_folder,
-            split="val",
-            batch_size=batch_size,
-            vocab_pkl=vocab_pkl,
-        )
-        self.vocab = train_dataset.vocab
-        print(f"Data loaders ready: {dataset_folder}")
-        print(f"Vocab size: {len(self.vocab)}")
 
         # Training utils
-        self.optimizer = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = train_config.optimizer(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
         self.lr_scheduler = ReduceLROnPlateau(
             self.optimizer,
             mode="min",
-            factor=lr_decay_gamma,
-            patience=lr_decay_patience,
+            factor=train_config.lr_decay_gamma,
+            patience=train_config.lr_decay_patience,
             verbose=True,
         )
-        self.gradient_clip_value = gradient_clip_value
-        self.history = {"train_loss": [], "test_loss": []}
+        self.gradient_clip_value = train_config.gradient_clip_value
+        self.reg_lambda = train_config.reg_lambda
+        self.recon_lambda = train_config.recon_lambda
+        self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
+
+        self.RecLoss = ReconstructionLossBuilder(
+            reg_lambda=self.reg_lambda,
+            recon_lambda=self.recon_lambda,
+            reconstruction_type=model.reconstructor_type
+        )
 
         self.previous_epochs = 0
-        self.best_loss = None
+        self.best_loss = 1e6
 
         # Start training
-        for epoch in range(self.previous_epochs + 1, epochs + 1):
-            print(f"\nEpoch {epoch}/{epochs}:")
+        for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
+            print(f"\nEpoch {epoch}/{train_config.epochs}:")
 
-            train_loss = self.train(model)
-            val_loss = self.test(model)
+            train_loss = self.train(model, train_loader)
+            val_loss = self.test(model, val_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
@@ -116,9 +116,8 @@ class Trainer:
             self.lr_scheduler.step(val_loss["total"])
 
             # Save checkpoint only if the validation loss improves (avoid overfitting)
-            if self.best_loss is None or (val_loss["total"] < self.best_loss):
-
-                print(f"Validation loss improved from {best_loss} to {val_loss['total']}.")
+            if val_loss["total"] < self.best_loss:
+                print(f"Validation loss improved from {self.best_loss} to {val_loss['total']}.")
                 print(f"Saving checkpoint to: {self.checkpoint_name}")
 
                 self.best_loss = val_loss["total"]
@@ -126,7 +125,7 @@ class Trainer:
 
         return self.history
 
-    def train(self, model):
+    def train(self, model, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -134,19 +133,18 @@ class Trainer:
 
         model.train()
 
-        with tqdm(self.train_loader) as progress:
+        with tqdm(dataloader, desc="TRAIN") as progress:
             for i, (features, captions) in enumerate(progress):
                 self.optimizer.zero_grad()
                 features, captions = features.to(self.device), captions.to(self.device)               
 
-                output, features_recons = model.decode(features, captions, max_caption_len=captions.shape[0])
-                loss, ce, e, recon = TotalReconstructionLoss(
-                    output,
+                outputs, features_recons = model(features, captions)
+                
+                loss, ce, e, recon = self.RecLoss(
+                    outputs,
                     captions,
                     features,
                     features_recons,
-                    reg_lambda=0,
-                    recon_lambda=0,
                 )
                 loss.mean().backward()
 
@@ -170,13 +168,13 @@ class Trainer:
                         }
                     )
         return {
-            "total": total_loss / len(self.train_loader),
-            "ce": cross_entropy_loss / len(self.train_loader),
-            "e": entropy_loss / len(self.train_loader),
-            "recon": reconstruction_loss / len(self.train_loader),
+            "total": total_loss / len(dataloader),
+            "ce": cross_entropy_loss / len(dataloader),
+            "e": entropy_loss / len(dataloader),
+            "recon": reconstruction_loss / len(dataloader),
         }
 
-    def test(self, model):
+    def test(self, model, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -185,18 +183,17 @@ class Trainer:
         model.eval()
 
         with torch.no_grad():
-            with tqdm(self.val_loader) as progress:
+            with tqdm(dataloader, desc="TEST ") as progress:
                 for i, (features, captions) in enumerate(progress):
                     features, captions = features.to(self.device), captions.to(self.device)
 
-                    output, features_recons = model.decode(features, max_caption_len=captions.shape[0])
-                    loss, ce, e, recon = TotalReconstructionLoss(
-                        output,
+                    outputs, features_recons = model(features, captions)
+
+                    loss, ce, e, recon = self.RecLoss(
+                        outputs,
                         captions,
                         features,
                         features_recons,
-                        reg_lambda=0,
-                        recon_lambda=0,
                     )
 
                     total_loss += loss.mean().item()
@@ -214,14 +211,14 @@ class Trainer:
                             }
                         )
         return {
-            "total": total_loss / len(self.val_loader),
-            "ce": cross_entropy_loss / len(self.val_loader),
-            "e": entropy_loss / len(self.val_loader),
-            "recon": reconstruction_loss / len(self.val_loader),
+            "total": total_loss / len(dataloader),
+            "ce": cross_entropy_loss / len(dataloader),
+            "e": entropy_loss / len(dataloader),
+            "recon": reconstruction_loss / len(dataloader),
         }
 
-
 if __name__ == "__main__":
+    from models import FeaturesCaptioning
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -229,20 +226,35 @@ if __name__ == "__main__":
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     vocab = Vocabulary.load(vocab_pkl)
 
-    from models import Decoder
+    train_config = TrainerConfig()
 
-    model = Decoder(
-        output_size=3056, # FIXME: Use vocab size. For some reason, vocab_pkl is 3201 
-        attn_size=128,
-        max_caption_len=30,
+    train_loader, train_dataset = get_loader(
+        root_dir=dataset_folder,
+        split="tiny", # split="train",
+        batch_size=train_config.batch_size,
+        vocab_pkl=vocab_pkl,
     )
-    model = model.cuda()
+    val_loader, _ = get_loader(
+        root_dir=dataset_folder,
+        split="tiny", # split="val",
+        batch_size=train_config.batch_size,
+        vocab_pkl=vocab_pkl,
+    )
+
+    model = AVCaptioning(
+        vocab_size=len(vocab),
+        teacher_forcing_ratio=0.5,
+        no_reconstructor=True,
+        device=device,
+    ) 
+    model.to(device)
 
     print("Start training")
     tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
     tr.fit(
         model,
+        train_loader,
+        val_loader,
         device,
-        epochs=1,
-        batch_size=128,
+        train_config
     )

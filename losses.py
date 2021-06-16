@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from functools import partial
+
 
 def EntropyLoss(x, ignore_mask):
     b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
@@ -16,9 +18,10 @@ def GlobalReconstructionLoss(x, x_recon, keep_mask):
 
     caption_len = keep_mask.sum(dim=0)
     caption_len = caption_len.unsqueeze(1).expand(caption_len.size(0), x_recon.size(2))
-    caption_len = caption_len.type(torch.cuda.FloatTensor)
+    keep_mask = keep_mask.transpose(0, 1).unsqueeze(2).expand_as(x_recon)
 
-    keep_mask = keep_mask.transpose(0, 1).unsqueeze(2).expand_as(x_recon).type(torch.cuda.FloatTensor)
+    caption_len = caption_len.type(torch.FloatTensor).to(x_recon.device)
+    keep_mask = keep_mask.type(torch.FloatTensor).to(x_recon.device)
 
     x_recon = keep_mask * x_recon
     x_recon = x_recon.sum(dim=1) / caption_len
@@ -28,19 +31,6 @@ def GlobalReconstructionLoss(x, x_recon, keep_mask):
 
 def LocalReconstructionLoss(x, x_recon):
     return F.mse_loss(x, x_recon)
-
-
-# def ReconstructionLoss(mode='none'):
-#     assert mode in ['none', 'global', 'local'], "Wrong mode specified, must be one of ['none', 'global', 'local']"
-
-#     def f(x, x_recon, keep_mask=None):
-#         if mode == 'global':
-#             return
-#         if mode == 'local':
-#             return
-#         return torch.zeros(1)
-#     return f
-
 
 def TotalReconstructionLoss(
     output,
@@ -67,19 +57,30 @@ def TotalReconstructionLoss(
     entropy_loss = EntropyLoss(output[1:], ignore_mask=(captions[1:] == PAD_idx))
 
     # Reconstruction loss
-    # if features_recons is None:
-    reconstruction_loss = torch.zeros(1).cuda()
-    # else:
-    #     if reconstruction_type == "global":
-    #         reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
-    #     else:
-    #         reconstruction_loss = LocalReconstructionLoss(features, features_recons)
+    if features_recons is None:
+        reconstruction_loss = torch.zeros(1).to(output.device)
+    else:
+        if reconstruction_type == "global":
+            reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
+        elif reconstruction_type == "local":
+            reconstruction_loss = LocalReconstructionLoss(features, features_recons)
+        else:
+            reconstruction_loss = torch.zeros(1).to(output.device)
 
     # print(type(cross_entropy_loss), type(reg_lambda), type(entropy_loss), type(recon_lambda), type(reconstruction_loss))
 
     # Total loss
     loss = cross_entropy_loss + (reg_lambda * entropy_loss) + (recon_lambda * reconstruction_loss)
     return loss, cross_entropy_loss, entropy_loss, reconstruction_loss
+
+def ReconstructionLossBuilder(reg_lambda, recon_lambda, reconstruction_type):
+    assert reconstruction_type in ['none', 'global', 'local'], "Wrong mode specified, must be one of ['none', 'global', 'local']"
+    return partial(
+        TotalReconstructionLoss, 
+        reg_lambda=reg_lambda, 
+        recon_lambda=recon_lambda, 
+        reconstruction_type=reconstruction_type
+    )
 
 if __name__ == '__main__':
     batch_size = 2
