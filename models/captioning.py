@@ -43,6 +43,7 @@ class AVCaptioning(nn.Module):
         self,
         vocab_size,
         teacher_forcing_ratio=0.0,
+        no_reconstructor = False,
         device='cpu',
     ):
         super(AVCaptioning, self).__init__()
@@ -59,6 +60,9 @@ class AVCaptioning(nn.Module):
         decoder = FeaturesCaptioning(**config,device=device)
         self.decoder = decoder.to(device)
 
+        if no_reconstructor:
+            rec_config['type'] = 'none'
+
         if rec_config['type'] == "global":
             reconstructor = GlobalReconstructor(**rec_config,device=device)
             self.reconstructor = reconstructor.to(device)
@@ -71,7 +75,11 @@ class AVCaptioning(nn.Module):
         self.reconstructor_type = rec_config['type']
         
     def forward(self, features, captions):
-        outputs, rnn_hiddens = self.decoder.decode(features, captions, max_caption_len=captions.shape[0])
+        outputs, rnn_hiddens = self.decoder.decode(
+            features, captions, 
+            max_caption_len=captions.shape[0], 
+            teacher_forcing_ratio=self.teacher_forcing_ratio
+        )
 
         if self.reconstructor is None:
             features_recons = None
