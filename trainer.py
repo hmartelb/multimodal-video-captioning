@@ -54,7 +54,6 @@ class Trainer:
     def fit(
         self,
         model,
-        reconstructor,
         train_loader,
         val_loader,
         device,
@@ -88,8 +87,8 @@ class Trainer:
         for epoch in range(self.previous_epochs + 1, epochs + 1):
             print(f"\nEpoch {epoch}/{epochs}:")
 
-            train_loss = self.train(model, reconstructor, train_loader)
-            val_loss = self.test(model, reconstructor, val_loader)
+            train_loss = self.train(model, train_loader)
+            val_loss = self.test(model, val_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
@@ -107,7 +106,7 @@ class Trainer:
 
         return self.history
 
-    def train(self, model, reconstructor, dataloader):
+    def train(self, model, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -120,8 +119,7 @@ class Trainer:
                 self.optimizer.zero_grad()
                 features, captions = features.to(self.device), captions.to(self.device)               
 
-                outputs, rnn_hiddens = model.decode(features, captions, max_caption_len=captions.shape[0])
-                features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions, features.shape[1])
+                outputs, features_recons = model(features, captions)
                 
                 loss, ce, e, recon = TotalReconstructionLoss(
                     outputs,
@@ -130,7 +128,7 @@ class Trainer:
                     features_recons,
                     reg_lambda=0,
                     recon_lambda=0,
-                    reconstruction_type=reconstructor.type
+                    reconstruction_type=model.reconstructor_type
                 )
                 loss.mean().backward()
 
@@ -160,7 +158,7 @@ class Trainer:
             "recon": reconstruction_loss / len(dataloader),
         }
 
-    def test(self, model, reconstructor, dataloader):
+    def test(self, model, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -173,8 +171,8 @@ class Trainer:
                 for i, (features, captions) in enumerate(progress):
                     features, captions = features.to(self.device), captions.to(self.device)
 
-                    outputs, rnn_hiddens = model.decode(features, max_caption_len=captions.shape[0])
-                    features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions, features.shape[1])
+                    outputs, features_recons = model(features, captions)
+
                     loss, ce, e, recon = TotalReconstructionLoss(
                         outputs,
                         captions,
@@ -182,7 +180,7 @@ class Trainer:
                         features_recons,
                         reg_lambda=0,
                         recon_lambda=0,
-                        reconstruction_type=reconstructor.type
+                        reconstruction_type=model.reconstructor_type
                     )
 
                     total_loss += loss.mean().item()
@@ -205,34 +203,6 @@ class Trainer:
             "e": entropy_loss / len(dataloader),
             "recon": reconstruction_loss / len(dataloader),
         }
-
-
-decoder_config = {    
-    'rnn_type'       : 'LSTM', # ['LSTM', 'GRU']
-    'rnn_num_layers' : 1,
-    'rnn_birectional': False,  # Bool
-    'rnn_hidden_size': 512,
-    'rnn_dropout'    : 0.5,    
-    
-    'in_feature_size': 1000+128,
-    'embedding_size' : 128,
-    'attn_size'      : 128,
-    'output_size'    : 3201, #Vocab Size
-
-    'rnn_teacher_forcing_ratio' : 1.0,
-    'max_caption_len' : 30,
-}
-
-constructor_config = {   
-    'type'           : 'global',  # ['global', 'local']
-    'rnn_type'       : 'LSTM',    # ['LSTM', 'GRU']
-    'rnn_num_layers' : 1,
-    'rnn_birectional': False,     # Bool
-    'hidden_size'    : 512,       # feature_size
-    'rnn_dropout'    : 0.5,    
-    'decoder_size'   : 128,       # decoder_hidden_size
-    'attn_size'      : 128,       # only applied for local
-}
 
 if __name__ == "__main__":
     from models import FeaturesCaptioning

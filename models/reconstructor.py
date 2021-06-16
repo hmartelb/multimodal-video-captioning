@@ -94,7 +94,6 @@ class LocalReconstructor(nn.Module):
         feats_recons = self.reconstruct_sequence(decoder_hiddens, caption_masks, target_feature_length)
         return feats_recons
 
-
 class GlobalReconstructor(nn.Module):
     def __init__(
         self, 

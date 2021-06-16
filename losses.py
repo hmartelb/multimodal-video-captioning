@@ -73,8 +73,10 @@ def TotalReconstructionLoss(
     else:
         if reconstruction_type == "global":
             reconstruction_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != PAD_idx))
-        else:
+        elif reconstruction_type == "local":
             reconstruction_loss = LocalReconstructionLoss(features, features_recons)
+        else:
+            reconstruction_loss = torch.zeros(1).to(output.device)
 
     # print(type(cross_entropy_loss), type(reg_lambda), type(entropy_loss), type(recon_lambda), type(reconstruction_loss))
 
