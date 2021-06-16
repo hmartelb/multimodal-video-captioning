@@ -126,12 +126,15 @@ class FeaturesCaptioning(nn.Module):
         hidden = self._init_hidden(batch_size)
         outputs, decoder_hiddens = self.forward_sentence(features, captions, hidden, max_caption_len, teacher_forcing_ratio)
 
-        if captions is None:
-            _, captions = outputs.max(dim=2)
-        caption_masks = (captions != 0) * (captions != 2)  # self.vocab.stoi['<PAD>'] = 0, self.vocab.stoi['<EOS>'] = 2
-        caption_masks = caption_masks.to(self.device)
+        return outputs, decoder_hiddens
 
-        recons = None # TODO: reconstructiong using decoder_hiddens
-        # if self.reconstructor is not None:
-        #     recons = self.forward_reconstructor(batch_size, decoder_hiddens, caption_masks)
-        return outputs, recons
+        # if captions is None:
+        #     _, captions = outputs.max(dim=2)
+        # caption_masks = (captions != 0) * (captions != 2)  # self.vocab.stoi['<PAD>'] = 0, self.vocab.stoi['<EOS>'] = 2
+        # caption_masks = caption_masks.to(self.device)
+
+        # recons = None # TODO: reconstructiong using decoder_hiddens
+        # # if self.reconstructor is not None:
+        # #     recons = self.forward_reconstructor(batch_size, decoder_hiddens, caption_masks)
+        # return outputs, recons
+

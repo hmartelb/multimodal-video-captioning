@@ -54,6 +54,7 @@ class Trainer:
     def fit(
         self,
         model,
+        reconstructor,
         train_loader,
         val_loader,
         device,
@@ -87,7 +88,7 @@ class Trainer:
         for epoch in range(self.previous_epochs + 1, epochs + 1):
             print(f"\nEpoch {epoch}/{epochs}:")
 
-            train_loss = self.train(model, train_loader)
+            train_loss = self.train(model, reconstructor, train_loader)
             val_loss = self.test(model, val_loader)
 
             self.history["train_loss"].append(train_loss)
@@ -106,7 +107,7 @@ class Trainer:
 
         return self.history
 
-    def train(self, model, dataloader):
+    def train(self, model, reconstructor, dataloader):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -119,9 +120,11 @@ class Trainer:
                 self.optimizer.zero_grad()
                 features, captions = features.to(self.device), captions.to(self.device)               
 
-                output, features_recons = model.decode(features, captions, max_caption_len=captions.shape[0])
+                outputs, rnn_hiddens = model.decode(features, captions, max_caption_len=captions.shape[0])
+                features_recons = reconstructor.reconstruct(rnn_hiddens, outputs, captions)
+                
                 loss, ce, e, recon = TotalReconstructionLoss(
-                    output,
+                    outputs,
                     captions,
                     features,
                     features_recons,
@@ -217,6 +220,17 @@ decoder_config = {
     'max_caption_len' : 30,
 }
 
+constructor_config = {   
+    'type'           : 'global',  # ['global', 'local']
+    'rnn_type'       : 'LSTM',    # ['LSTM', 'GRU']
+    'rnn_num_layers' : 1,
+    'rnn_birectional': False,     # Bool
+    'hidden_size'    : 512,       # feature_size
+    'rnn_dropout'    : 0.5,    
+    'decoder_size'   : 128,       # decoder_hidden_size
+    'attn_size'      : 128,       # only applied for local
+}
+
 if __name__ == "__main__":
     from models import FeaturesCaptioning
 
@@ -243,16 +257,20 @@ if __name__ == "__main__":
     config = decoder_config.copy()
     config['output_size'] = len(vocab)
 
-    model = FeaturesCaptioning(
-        **config,
-        device=device
-    )
+    model = FeaturesCaptioning(**config,device=device)
     model = model.to(device)
+
+    rec_config = constructor_config.copy()
+    rec_config['decoder_size'] = config['rnn_hidden_size']
+    rec_config['hidden_size'] = config['in_feature_size']
+    reconstructor = GlobalReconstructor(**rec_config,device=device)
+    reconstructor = model.to(device)
 
     print("Start training")
     tr = Trainer(checkpoint_name=os.path.join("checkpoints", "test.ckpt"))
     tr.fit(
         model,
+        reconstructor,
         train_loader,
         val_loader,
         device,
