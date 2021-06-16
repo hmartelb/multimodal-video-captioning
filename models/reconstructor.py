@@ -169,7 +169,7 @@ class GlobalReconstructor(nn.Module):
 
         # placeholder for reconstruct features
         feats_recons = Variable(torch.zeros(max_caption_len, batch_size, self.hidden_size))
-        feats_recons.to(self.device)
+        feats_recons = feats_recons.to(self.device)
 
         hidden = self._init_hidden(batch_size)
 
@@ -185,7 +185,7 @@ class GlobalReconstructor(nn.Module):
 
     def reconstruct(self, decoder_hiddens, outputs, captions, target_feature_length=None):
         '''
-        target_feature_length is useless, just to standardize the function call with global_reconstructor
+        target_feature_length is useless, just to standardize the function call with local_reconstructor
         '''
         caption_masks = build_caption_mask(outputs, captions)
         feats_recons = self.reconstruct_sequence(decoder_hiddens, caption_masks)

@@ -202,7 +202,7 @@ def get_loader(
     root_dir,
     split="train",
     batch_size=32,
-    num_workers=8,
+    num_workers=0,
     shuffle=True,
     pin_memory=True,
     vocab_pkl=None,
