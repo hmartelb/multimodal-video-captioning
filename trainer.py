@@ -22,12 +22,12 @@ from models import AVCaptioning
 
 import gc
 
-DEBUG = True ## FIXME: Before training
+DEBUG = False ## FIXME: Before training
 
 class TrainerConfig:
     batch_size = 128
 
-    epochs = 2 if DEBUG else 50
+    epochs = 2 if DEBUG else 2 # FIXME
     lr = 1e-4
     weight_decay = 1e-5
     optimizer = optim.Adam
@@ -108,24 +108,25 @@ class Trainer:
             rec_type=model.reconstructor_type,
         )
 
-        self.history = {"train_loss": [], "val_loss": [], "test_loss": []}
+        self.history = {"train_loss": [], "val_loss": [], "val_score": [], "test_loss": [], "test_score": []}
         self.previous_epochs = 0
         self.best_loss = 1e6
 
         ## VideoCaptionsDataloader for Evaluation
-        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, train_config.batch_size)
-        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, train_config.batch_size)
+        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, 1)#train_config.batch_size)
+        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, 1) #train_config.batch_size)
 
         # Start training
         for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
             print(f"\nEpoch {epoch}/{train_config.epochs}:")
 
-            train_loss = self.train(model, train_loader)
-            val_loss = self.test(model, val_loader)
+            # train_loss = self.train(model, train_loader)
+            # val_loss = self.test(model, val_loader)
             val_score = self.eval(model, val_vidCap_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
+            self.history["val_score"].append(val_score)
 
             # Scheduler step, check plateau
             self.lr_scheduler.step(val_loss["total"])
@@ -138,7 +139,11 @@ class Trainer:
                 self.best_loss = val_loss["total"]
                 self._save_checkpoint(epoch, model, {})  # FIXME: empty config
 
+        test_loss = self.test(model, test_loader)
         test_score = self.eval(model, test_vidCap_loader)
+
+        self.history["test_loss"].append(test_loss)
+        self.history["test_score"].append(test_score)
 
         return self.history
 
@@ -265,13 +270,27 @@ class Trainer:
         vid_GT = {}
         vid_gen = {}
         with tqdm(videoCaptions_dataloader, desc="EVAL ") as progress:
-            for i, (vid_ids, features, captions) in enumerate(progress):
-                generated_captions = model.predict(features, max_caption_len=30, beam_alpha=0, beam_width=5)
+            for i, (vid_ids, audio_features, visual_features, captions) in enumerate(progress):
+                audio_features, visual_features = (
+                    audio_features.to(self.device),
+                    visual_features.to(self.device)
+                )
+                generated_captions = model.predict(audio_features, visual_features, max_caption_len=30, beam_alpha=0, beam_width=5)
+                
+                # generated_captions = generated_captions.detach().cpu()
+                
+                # print(captions)
+                # print(generated_captions)
+
                 vid_GT.update({k:v for k, v in zip(vid_ids, captions)})
                 vid_gen.update({k:[v] for k, v in zip(vid_ids, generated_captions)})
 
+                # FIXME: only for debug
+                if i >= 4:
+                    break
+
         scores = NLPScore(vid_GT, vid_gen) 
-        # print(scores)
+        print(scores)
         return scores
 
 if __name__ == "__main__":
@@ -317,14 +336,14 @@ if __name__ == "__main__":
     model = AVCaptioning(
         vocab=vocab,
         teacher_forcing_ratio=0.5,
-        no_reconstructor=False,
+        no_reconstructor=True,
         device=device,
     )
     model.to(device)
 
     print("Start training")
     tr = Trainer(checkpoint_name=os.path.join(CHECKPOINTS_DIR, "test.ckpt"))
-    tr.fit(
+    history = tr.fit(
         model,
         train_loader,
         val_loader,
