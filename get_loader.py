@@ -69,6 +69,26 @@ class Vocabulary:
     def load(path):
         return pickle.load(open(path, 'rb'))
 
+    def apply_vocab(self, sentence):
+        '''
+        convert token not in vocab to "<UNK>"
+        '''
+        tokenized_text = self.tokenizer_eng(sentence)
+        tokens = [token if token in self.stoi else "<UNK>" for token in tokenized_text]
+        return ' '.join(tokens)
+
+    def decode_indexes(self, indexes):
+        words = []
+        EOS_idx = 2
+        for idx in indexes:
+            if type(idx) is torch.Tensor:
+                idx = idx.item()
+            if idx == EOS_idx:
+                break
+            words.append(self.itos[idx])
+        sentence = ' '.join(words)
+        return sentence
+
 
 def build_MSVD_vocab():
     dataset_folder = os.path.join("datasets", "MSVD")
@@ -143,6 +163,88 @@ class MSVD_Dataset(Dataset):
         features = np.concatenate([video_features, audio_features], axis=1)
 
         return torch.tensor(features), torch.tensor(caption_tokens)
+
+class VideoCaptionsDataset(Dataset):
+    def __init__(
+        self,
+        root_dir,
+        vid_cap_dict,
+    ):
+        '''
+        vid_cap_dict: dict({ vid: [captions] })
+        '''
+        self.root_dir = root_dir
+        self.vid_cap_dict = vid_cap_dict
+        self.video_ids = list(vid_cap_dict.keys())
+
+    def __len__(self):
+        return len(self.video_ids)
+
+    def __getitem__(self, index):
+        video_id_full = self.video_ids[index]
+
+        video_features_file = os.path.join(self.root_dir, "features", "video", f"{video_id_full}.npy")
+        audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{video_id_full}.npy")
+
+        video_features = np.load(video_features_file)
+        audio_features = np.load(audio_features_file)
+
+        # quick fix,there are some feature in shape (128,) when number of frame is 1 
+        # e.g. 'rOic25PnIx8_1_3'
+        if len(audio_features.shape) < 2:
+            audio_features = audio_features.reshape((-1, 128))
+
+        # Make both features to have the same frames (drop largest)
+        n_frames = min(video_features.shape[0], audio_features.shape[0])
+
+        video_features = video_features[0:n_frames, :]
+        audio_features = audio_features[0:n_frames, :]
+
+        features = np.concatenate([video_features, audio_features], axis=1)
+
+        captions = self.vid_cap_dict[video_id_full]
+
+        return video_id_full, torch.tensor(features), captions
+
+class VideoCaptionsCollect:
+    '''
+    return batch data (features, captions) in the shape of:
+    features: [batchsize, length, feat_dim]
+    captions: [length, batchsize]
+    
+    '''
+    def __init__(self):
+        pass
+
+    def __call__(self, batch):
+        video_ids = [item[0] for item in batch]
+
+        features = [item[1].unsqueeze(0) for item in batch]
+        features = [item[1] for item in batch]
+        features = pad_sequence(features, batch_first=True, padding_value=0)
+
+        captions = [item[2] for item in batch]
+        return video_ids, features, captions
+
+def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0):
+
+    full_video_id = lambda x: f"{x['VideoID']}_{x['Start']}_{x['End']}"
+    df = pd.DataFrame()
+    df["FullVideoID"] = videodataset.metadata.apply(full_video_id, axis=1)
+    df["Caption"] = videodataset.metadata["Description"].apply(videodataset.vocab.apply_vocab)
+    vid_captions_dict = df[['FullVideoID', 'Caption']].groupby('FullVideoID')['Caption'].apply(list).to_dict()
+
+    videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict)
+
+    loader = DataLoader(
+        dataset=videoCaptionsDataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        shuffle=False,
+        collate_fn=VideoCaptionsCollect(),
+    )
+
+    return loader
 
 
 # class FlickrDataset(Dataset):

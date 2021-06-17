@@ -128,3 +128,93 @@ class FeaturesCaptioning(nn.Module):
 
         return outputs, decoder_hiddens
 
+
+    def beam_search_predict(self, features, vocab, max_caption_len=30, beam_alpha=0, beam_width=5):
+        batch_size = features.size(0)
+        feats = features
+        alpha = beam_alpha
+        width = beam_width
+        rnn_type = self.rnn_type
+        vocab_size = len(vocab)
+        SOS_idx = vocab.stoi['<SOS>']
+        EOS_idx = vocab.stoi['<EOS>']
+
+        hidden = self._init_hidden(batch_size)
+
+        input_list = [ torch.LongTensor(1, batch_size).fill_(SOS_idx) ]
+        hidden_list = [ hidden ]
+        cum_prob_list = [ torch.ones(batch_size) ]
+        cum_prob_list = [ torch.log(cum_prob) for cum_prob in cum_prob_list ]
+        output_list = [ [[]] for _ in range(batch_size) ]
+
+        for t in range(max_caption_len + 1):
+            beam_output_list = [] # width x ( 1, 100 )
+            normalized_beam_output_list = [] # width x ( 1, 100 )
+            if rnn_type == "LSTM":
+                beam_hidden_list = ( [], [] ) # 2 * width x ( 1, 100, 512 )
+            else:
+                beam_hidden_list = [] # width x ( 1, 100, 512 )
+            next_output_list = [ [] for _ in range(batch_size) ]
+
+            assert len(input_list) == len(hidden_list) == len(cum_prob_list)
+            for i, (prev_words, hidden, cum_prob) in enumerate(zip(input_list, hidden_list, cum_prob_list)):
+                output, next_hidden, _ = self.forward_word(feats, hidden, prev_words)
+
+                caption_list = [ output_list[b][i] for b in range(batch_size)]
+                EOS_mask = [ 0. if EOS_idx in [ idx.item() for idx in caption ] else 1. for caption in caption_list ]
+                EOS_mask = torch.FloatTensor(EOS_mask)
+                EOS_mask = EOS_mask.unsqueeze(1).expand_as(output)
+                output = EOS_mask * output
+
+                output += cum_prob.unsqueeze(1)
+                beam_output_list.append(output)
+
+                caption_lens = [ [ idx.item() for idx in caption ].index(EOS_idx) + 1 if EOS_idx in [ idx.item() for idx in caption ] else t + 1 for caption in caption_list ]
+                caption_lens = torch.FloatTensor(caption_lens)
+                normalizing_factor = ((5 + caption_lens) ** alpha) / (6 ** alpha)
+                normalizing_factor = normalizing_factor.unsqueeze(1).expand_as(output)
+                normalized_output = output / normalizing_factor
+                normalized_beam_output_list.append(normalized_output)
+                if rnn_type == "LSTM":
+                    beam_hidden_list[0].append(next_hidden[0])
+                    beam_hidden_list[1].append(next_hidden[1])
+                else:
+                    beam_hidden_list.append(next_hidden)
+            beam_output_list = torch.cat(beam_output_list, dim=1) # ( 100, n_vocabs * width )
+            normalized_beam_output_list = torch.cat(normalized_beam_output_list, dim=1)
+            beam_topk_output_index_list = normalized_beam_output_list.argsort(dim=1, descending=True)[:, :width] # ( 100, width )
+            topk_beam_index = beam_topk_output_index_list // vocab_size # ( 100, width )
+            topk_output_index = beam_topk_output_index_list % vocab_size # ( 100, width )
+
+            topk_output_list = [ topk_output_index[:, i] for i in range(width) ] # width * ( 100, )
+            if rnn_type == "LSTM":
+                topk_hidden_list = (
+                    [ [] for _ in range(width) ],
+                    [ [] for _ in range(width) ]) # 2 * width * (1, 100, 512)
+            else:
+                topk_hidden_list = [ [] for _ in range(width) ] # width * ( 1, 100, 512 )
+            topk_cum_prob_list = [ [] for _ in range(width) ] # width * ( 100, )
+            for i, (beam_index, output_index) in enumerate(zip(topk_beam_index, topk_output_index)):
+                for k, (bi, oi) in enumerate(zip(beam_index, output_index)):
+                    if rnn_type == "LSTM":
+                        topk_hidden_list[0][k].append(beam_hidden_list[0][bi][:, i, :])
+                        topk_hidden_list[1][k].append(beam_hidden_list[1][bi][:, i, :])
+                    else:
+                        topk_hidden_list[k].append(beam_hidden_list[bi][:, i, :])
+                    topk_cum_prob_list[k].append(beam_output_list[i][vocab_size * bi + oi])
+                    next_output_list[i].append(output_list[i][bi] + [ oi ])
+            output_list = next_output_list
+
+            input_list = [ topk_output.unsqueeze(0) for topk_output in topk_output_list ] # width * ( 1, 100 )
+            if rnn_type == "LSTM":
+                hidden_list = (
+                    [ torch.stack(topk_hidden, dim=1) for topk_hidden in topk_hidden_list[0] ],
+                    [ torch.stack(topk_hidden, dim=1) for topk_hidden in topk_hidden_list[1] ]) # 2 * width * ( 1, 100, 512 )
+                hidden_list = [ ( hidden, context ) for hidden, context in zip(*hidden_list) ]
+            else:
+                hidden_list = [ torch.stack(topk_hidden, dim=1) for topk_hidden in topk_hidden_list ] # width * ( 1, 100, 512 )
+            cum_prob_list = [ torch.FloatTensor(topk_cum_prob) for topk_cum_prob in topk_cum_prob_list ] # width * ( 100, )
+
+        outputs = [ [ SOS_idx ] + o[0] for o in output_list ]
+        return outputs
+
