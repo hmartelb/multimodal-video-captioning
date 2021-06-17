@@ -115,15 +115,13 @@ def ModalityWiseReconstructionLoss(
 ):
     def _reconstruction_loss(captions, features, features_recons=None, rec_type="none"):
         # Reconstruction loss
-        if features_recons is None:
-            rec_loss = torch.zeros(1).to(output.device)
+        if features_recons is None or rec_type not in ['global', 'local']:
+            rec_loss = torch.zeros(1)[0].to(output.device)
         else:
             if rec_type == "global":
                 rec_loss = GlobalReconstructionLoss(features, features_recons, keep_mask=(captions != 0))
             elif rec_type == "local":
                 rec_loss = LocalReconstructionLoss(features, features_recons)
-            else:
-                rec_loss = torch.zeros(1).to(output.device)
         return rec_loss
 
     vocab_size = int(output.shape[2])
