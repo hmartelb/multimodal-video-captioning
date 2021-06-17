@@ -160,9 +160,14 @@ class MSVD_Dataset(Dataset):
         video_features = video_features[0:n_frames, :]
         audio_features = audio_features[0:n_frames, :]
 
-        features = np.concatenate([video_features, audio_features], axis=1)
+        # Frame-wise normalization
+        video_features /= np.sum(video_features, axis=1, keepdims=True)
+        audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
-        return torch.tensor(features), torch.tensor(caption_tokens)
+        return torch.tensor(audio_features), torch.tensor(video_features), torch.tensor(caption_tokens)
+
+        # features = np.concatenate([video_features, audio_features], axis=1)
+        # return torch.tensor(features), torch.tensor(caption_tokens)
 
 class VideoCaptionsDataset(Dataset):
     def __init__(
@@ -290,7 +295,7 @@ class CustomCollate:
         self.pad_idx = pad_idx
 
     def __call__(self, batch):
-        features = [item[0].unsqueeze(0) for item in batch]
+        # features = [item[0].unsqueeze(0) for item in batch]
         # features = torch.cat(features, dim=0)
         features = [item[0] for item in batch]
         features = pad_sequence(features, batch_first=True, padding_value=0)
@@ -298,6 +303,28 @@ class CustomCollate:
         captions = pad_sequence(captions, batch_first=False, padding_value=self.pad_idx)
 
         return features, captions
+
+class CustomCollateAV:
+    '''
+    return batch data (features, captions) in the shape of:
+    features: [batchsize, length, feat_dim]
+    captions: [length, batchsize]
+    
+    '''
+    def __init__(self, pad_idx):
+        self.pad_idx = pad_idx
+
+    def __call__(self, batch):
+        audio_features = [item[0] for item in batch]
+        audio_features = pad_sequence(audio_features, batch_first=True, padding_value=0)
+        
+        video_features = [item[1] for item in batch]
+        video_features = pad_sequence(video_features, batch_first=True, padding_value=0)
+        
+        captions = [item[2] for item in batch]
+        captions = pad_sequence(captions, batch_first=False, padding_value=self.pad_idx)
+
+        return audio_features, video_features, captions
 
 
 def get_loader(
@@ -319,7 +346,7 @@ def get_loader(
         num_workers=num_workers,
         shuffle=shuffle,
         pin_memory=pin_memory,
-        collate_fn=CustomCollate(pad_idx=pad_idx),
+        collate_fn=CustomCollateAV(pad_idx=pad_idx),
     )
 
     return loader, dataset
