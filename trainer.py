@@ -22,12 +22,13 @@ from models import AVCaptioning
 
 import gc
 
-DEBUG = False ## FIXME: Before training
+DEBUG = False  ## FIXME: Before training
+
 
 class TrainerConfig:
     batch_size = 128
 
-    epochs = 2 if DEBUG else 2 # FIXME
+    epochs = 2 if DEBUG else 2  # FIXME
     lr = 1e-4
     weight_decay = 1e-5
     optimizer = optim.Adam
@@ -42,11 +43,13 @@ class TrainerConfig:
     audio_recon_lambda = 10
     visual_recon_lambda = 10
 
+
 class Trainer:
-    def __init__(self, checkpoint_name, display_freq=10):
+    def __init__(self, checkpoint_name, display_freq=10, eval_freq=10):
         # assert checkpoint_name.endswith(".tar"), "The checkpoint file must have .tar extension"
         self.checkpoint_name = checkpoint_name
         self.display_freq = display_freq
+        self.eval_freq = eval_freq
 
     def _load_checkpoint(self, model):
         if os.path.isfile(self.checkpoint_name):
@@ -58,6 +61,7 @@ class Trainer:
                 if model.reconstructor and checkpoint["reconstructor"]:
                     model.reconstructor.load_state_dict(checkpoint["reconstructor"])
 
+                self.previous_epochs = checkpoint["epoch"]
                 self.history = checkpoint["history"]
             except:
                 print(f"Error loading from checkpoint: {self.checkpoint_name}. \nUsing default parameters...")
@@ -112,9 +116,12 @@ class Trainer:
         self.previous_epochs = 0
         self.best_loss = 1e6
 
+        model = self._load_checkpoint(model)
+        model.to(self.device)
+
         ## VideoCaptionsDataloader for Evaluation
-        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, train_config.batch_size)
-        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, train_config.batch_size)
+        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, 4)  # train_config.batch_size)
+        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, 4)  # ,train_config.batch_size)
 
         # Start training
         for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
@@ -122,11 +129,16 @@ class Trainer:
 
             train_loss = self.train(model, train_loader)
             val_loss = self.test(model, val_loader)
-            val_score = self.eval(model, val_vidCap_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
-            self.history["val_score"].append(val_score)
+            
+            if epoch % self.eval_freq == self.eval_freq - 1 or epoch == train_config.epochs:
+                val_score = self.eval(model, val_vidCap_loader)
+                self.history["val_score"].append(val_score)
+
+                # TODO:
+                # Maybe save checkpoint based on EVAL METRIC
 
             # Scheduler step, check plateau
             self.lr_scheduler.step(val_loss["total"])
@@ -139,7 +151,11 @@ class Trainer:
                 self.best_loss = val_loss["total"]
                 self._save_checkpoint(epoch, model, {})  # FIXME: empty config
 
-        test_loss = self.test(model, test_loader)
+        # Evaluate on TEST set using the best model (from checkpoint)
+        model = self._load_checkpoint(model)
+        model = model.to(self.device)
+
+        # test_loss = self.test(model, test_loader)
         test_score = self.eval(model, test_vidCap_loader)
 
         self.history["test_loss"].append(test_loss)
@@ -271,21 +287,29 @@ class Trainer:
         vid_gen = {}
         with tqdm(videoCaptions_dataloader, desc="EVAL ") as progress:
             for i, (vid_ids, audio_features, visual_features, captions) in enumerate(progress):
-                audio_features, visual_features = (
-                    audio_features.to(self.device),
-                    visual_features.to(self.device)
+                audio_features, visual_features = (audio_features.to(self.device), visual_features.to(self.device))
+                generated_captions = model.predict(
+                    audio_features, visual_features, max_caption_len=30, beam_alpha=0, beam_width=5
                 )
-                generated_captions = model.predict(audio_features, visual_features, max_caption_len=30, beam_alpha=0, beam_width=5)
 
-                vid_GT.update({k:v for k, v in zip(vid_ids, captions)})
-                vid_gen.update({k:[v] for k, v in zip(vid_ids, generated_captions)})
+                vid_GT.update({k: v for k, v in zip(vid_ids, captions)})
+                vid_gen.update({k: [v] for k, v in zip(vid_ids, generated_captions)})
 
-        scores = NLPScore(vid_GT, vid_gen) 
+                print("\nExample captions: generated (ground_truth)")
+                for i, key in enumerate(vid_GT):
+                    print(f"{vid_gen}({vid_GT[key][0]})")
+                    if i >= 10:
+                        break
+                print()
+
+        scores = NLPScore(vid_GT, vid_gen)
         print(scores)
         return scores
 
+
 if __name__ == "__main__":
     from models import FeaturesCaptioning
+    import json
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -296,49 +320,107 @@ if __name__ == "__main__":
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     vocab = Vocabulary.load(vocab_pkl)
 
-    train_config = TrainerConfig()
-
-
-    train_loader, train_dataset = get_loader(
-        root_dir=dataset_folder,
-        split="tiny" if DEBUG else "train",
-        batch_size=train_config.batch_size,
-        vocab_pkl=vocab_pkl,
-    )
-    val_loader, _ = get_loader(
-        root_dir=dataset_folder,
-        split="tiny" if DEBUG else "val",
-        batch_size=train_config.batch_size,
-        vocab_pkl=vocab_pkl,
-    )
-    test_loader, _ = get_loader(
-        root_dir=dataset_folder,
-        split="tiny" if DEBUG else "test",
-        batch_size=train_config.batch_size,
-        vocab_pkl=vocab_pkl,
-    )
-
     CHECKPOINTS_DIR = os.path.join("checkpoints")
 
-    # experiments = [
+    experiments = [
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+            "checkpoint_name": "SA-LSTM_50_epochs_base",
+        },
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0.001, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+            "checkpoint_name": "SA-LSTM_50_epochs_reg_1e-3",
+        },
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
+            "checkpoint_name": "SA-LSTM_50_epochs_audio",
+        },
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
+            "checkpoint_name": "SA-LSTM_50_epochs_visual",
+        },
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
+            "checkpoint_name": "SA-LSTM_50_epochs_audiovisual",
+        },
+    ]
 
-    # ]
+    for exp in experiments:
 
-    model = AVCaptioning(
-        vocab=vocab,
-        teacher_forcing_ratio=0.5,
-        no_reconstructor=True,
-        device=device,
-    )
-    model.to(device)
+        train_config = TrainerConfig()
 
-    print("Start training")
-    tr = Trainer(checkpoint_name=os.path.join(CHECKPOINTS_DIR, "test.ckpt"))
-    history = tr.fit(
-        model,
-        train_loader,
-        val_loader,
-        test_loader,
-        device,
-        train_config,
-    )
+        # Training params
+        train_config.batch_size = exp["training"]["batch_size"]
+        train_config.epochs = exp["training"]["epochs"]
+        train_config.lr = exp["training"]["lr"]
+
+        # Loss terms
+        train_config.reg_lambda = exp["loss"]["reg_lambda"]
+        train_config.audio_recon_lambda = exp["loss"]["audio_recon_lambda"]
+        train_config.visual_recon_lambda = exp["loss"]["visual_recon_lambda"]
+
+        train_loader, train_dataset = get_loader(
+            root_dir=dataset_folder,
+            split="tiny" if DEBUG else "train",
+            batch_size=train_config.batch_size,
+            vocab_pkl=vocab_pkl,
+        )
+        val_loader, _ = get_loader(
+            root_dir=dataset_folder,
+            split="tiny" if DEBUG else "val",
+            batch_size=train_config.batch_size,
+            vocab_pkl=vocab_pkl,
+        )
+        test_loader, _ = get_loader(
+            root_dir=dataset_folder,
+            split="tiny" if DEBUG else "test",
+            batch_size=train_config.batch_size,
+            vocab_pkl=vocab_pkl,
+        )
+
+        model = AVCaptioning(
+            vocab=vocab,
+            teacher_forcing_ratio=exp["model"]["teacher_forcing_ratio"],
+            reconstructor_type=exp["model"]["reconstructor_type"],
+            device=device,
+        )
+
+        # Try loading previous checkpoint (transfer learning)
+        base_checkpoint_name = (
+            os.path.join(CHECKPOINTS_DIR, exp["base_checkpoint_name"]) if "base_checkpoint_name" in exp else None
+        )
+        if base_checkpoint_name and os.path.isdir(base_checkpoint_name):
+            checkpoint = torch.load()
+
+        model.to(device)
+
+        print("Start training")
+        print(json.dumps(exp, sort_keys=True, indent=4))
+        
+        checkpoint_name = os.path.join(
+            CHECKPOINTS_DIR, 
+            exp["checkpoint_name"] + (".ckpt" if not exp["checkpoint_name"].endswith(".ckpt") else "")
+        )
+        tr = Trainer(checkpoint_name=checkpoint_name, eval_freq=1)
+        history = tr.fit(
+            model,
+            train_loader,
+            val_loader,
+            test_loader,
+            device,
+            train_config,
+        )
+        
+        # Save the history where the checkpoint is
+        with open(checkpoint_name.replace(".ckpt", ".json"), "w") as f:
+            json.dump(history, f)

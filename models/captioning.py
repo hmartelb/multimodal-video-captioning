@@ -38,7 +38,7 @@ class AVCaptioning(nn.Module):
         self,
         vocab,
         teacher_forcing_ratio=0.0,
-        no_reconstructor=False,
+        reconstructor_type="none",
         device="cpu",
     ):
         super(AVCaptioning, self).__init__()
@@ -52,23 +52,24 @@ class AVCaptioning(nn.Module):
         rec_config = RECONSTRUCTOR_CONFIG.copy()
         rec_config["decoder_size"] = config["rnn_hidden_size"]
         rec_config["hidden_size"] = config["in_feature_size"]
+        rec_config["type"] = reconstructor_type
 
         decoder = FeaturesCaptioning(**config, device=device)
         self.decoder = decoder.to(device)
 
-        if no_reconstructor:
-            rec_config["type"] = "none"
+        # if no_reconstructor:
+        #     rec_config["type"] = "none"
 
-        if rec_config["type"] == "global":
+        if reconstructor_type == "global":
             reconstructor = GlobalReconstructor(**rec_config, device=device)
             self.reconstructor = reconstructor.to(device)
-        elif rec_config["type"] == "local":
+        elif reconstructor_type == "local":
             reconstructor = LocalReconstructor(**rec_config, device=device)
             self.reconstructor = reconstructor.to(device)
         else:
             self.reconstructor = None
 
-        self.reconstructor_type = rec_config["type"]
+        self.reconstructor_type = reconstructor_type #rec_config["type"]
 
         ## Message
         print("Initializing Model...")
