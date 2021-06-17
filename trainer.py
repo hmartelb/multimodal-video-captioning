@@ -22,13 +22,12 @@ from models import AVCaptioning
 
 import gc
 
-DEBUG = False  ## FIXME: Before training
-
+DEBUG = False  ## FIXME: Set to False before training
 
 class TrainerConfig:
     batch_size = 128
 
-    epochs = 2 if DEBUG else 2  # FIXME
+    epochs = 2 if DEBUG else 50
     lr = 1e-4
     weight_decay = 1e-5
     optimizer = optim.Adam
@@ -133,7 +132,7 @@ class Trainer:
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             
-            if epoch % self.eval_freq == self.eval_freq - 1 or epoch == train_config.epochs:
+            if epoch % self.eval_freq == 0 or epoch == train_config.epochs:
                 val_score = self.eval(model, val_vidCap_loader)
                 self.history["val_score"].append(val_score)
 
@@ -155,7 +154,7 @@ class Trainer:
         model = self._load_checkpoint(model)
         model = model.to(self.device)
 
-        # test_loss = self.test(model, test_loader)
+        test_loss = self.test(model, test_loader)
         test_score = self.eval(model, test_vidCap_loader)
 
         self.history["test_loss"].append(test_loss)
@@ -295,12 +294,12 @@ class Trainer:
                 vid_GT.update({k: v for k, v in zip(vid_ids, captions)})
                 vid_gen.update({k: [v] for k, v in zip(vid_ids, generated_captions)})
 
-                print("\nExample captions: generated (ground_truth)")
-                for i, key in enumerate(vid_GT):
-                    print(f"{vid_gen}({vid_GT[key][0]})")
-                    if i >= 10:
-                        break
-                print()
+            print("\nExample captions: [generated] (ground_truth)")
+            for i, key in enumerate(vid_GT):
+                print(f"[{vid_gen[key][0]}] ({vid_GT[key][0]})")
+                if i >= 10:
+                    break
+            print()
 
         scores = NLPScore(vid_GT, vid_gen)
         print(scores)
@@ -311,8 +310,13 @@ if __name__ == "__main__":
     from models import FeaturesCaptioning
     import json
 
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--gpu', default='-1')
+    args = parser.parse_args()
+
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -323,6 +327,7 @@ if __name__ == "__main__":
     CHECKPOINTS_DIR = os.path.join("checkpoints")
 
     experiments = [
+        # NO reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
@@ -335,23 +340,43 @@ if __name__ == "__main__":
             "loss": {"reg_lambda": 0.001, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
             "checkpoint_name": "SA-LSTM_50_epochs_reg_1e-3",
         },
+        # LOCAL reconstructors
         {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_audio",
+            "checkpoint_name": "SA-LSTM_50_epochs_audio_local",
         },
         {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
-            "checkpoint_name": "SA-LSTM_50_epochs_visual",
+            "checkpoint_name": "SA-LSTM_50_epochs_visual_local",
         },
         {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
-            "checkpoint_name": "SA-LSTM_50_epochs_audiovisual",
+            "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_local",
+        },
+        # GLOBAL reconstructors
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
+            "checkpoint_name": "SA-LSTM_50_epochs_audio_global",
+        },
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
+            "checkpoint_name": "SA-LSTM_50_epochs_visual_global",
+        },
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
+            "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_global",
         },
     ]
 
@@ -407,11 +432,9 @@ if __name__ == "__main__":
         print("Start training")
         print(json.dumps(exp, sort_keys=True, indent=4))
         
-        checkpoint_name = os.path.join(
-            CHECKPOINTS_DIR, 
-            exp["checkpoint_name"] + (".ckpt" if not exp["checkpoint_name"].endswith(".ckpt") else "")
-        )
-        tr = Trainer(checkpoint_name=checkpoint_name, eval_freq=1)
+        checkpoint_name = os.path.join(CHECKPOINTS_DIR, exp["checkpoint_name"] + ".ckpt")#(".ckpt" if not exp["checkpoint_name"].endswith(".ckpt") else "")
+        
+        tr = Trainer(checkpoint_name=checkpoint_name, eval_freq=5)
         history = tr.fit(
             model,
             train_loader,

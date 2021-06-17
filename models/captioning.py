@@ -16,8 +16,8 @@ DECODER_CONFIG = {
     "rnn_hidden_size": 512,
     "rnn_dropout": 0.5,
     "in_feature_size": 1000 + 128,
-    "embedding_size": 128,
-    "attn_size": 128,
+    "embedding_size": 300,#128,
+    "attn_size": 256,#128,
     "output_size": 3201,  # Vocab Size
 }
 
@@ -28,8 +28,8 @@ RECONSTRUCTOR_CONFIG = {
     "rnn_bidirectional": False,  # Bool
     "hidden_size": 1000 + 128,  # feature_size
     "rnn_dropout": 0.5,
-    "decoder_size": 128,  # decoder_hidden_size
-    "attn_size": 128,  # only applied for local
+    "decoder_size": 512,#128,  # decoder_hidden_size
+    "attn_size": 256,#128,  # only applied for local
 }
 
 
