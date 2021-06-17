@@ -105,6 +105,6 @@ class AVCaptioning(nn.Module):
     def predict(self, features, max_caption_len=30, beam_alpha=0, beam_width=5):
         outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
 
-        captions = [self.vocab.decode_prediction(o[1:]) for o in outputs]
+        captions = [self.vocab.decode_indexes(o[1:]) for o in outputs]
 
         return captions

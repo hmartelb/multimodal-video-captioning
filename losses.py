@@ -4,6 +4,10 @@ import torch.nn.functional as F
 
 from functools import partial
 
+from pycocoevalcap.bleu.bleu import Bleu
+from pycocoevalcap.rouge.rouge import Rouge
+from pycocoevalcap.cider.cider import Cider
+from pycocoevalcap.meteor.meteor import Meteor
 
 def EntropyLoss(x, ignore_mask):
     b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
@@ -154,6 +158,28 @@ def ModalityWiseReconstructionLossBuilder(reg_lambda, audio_recon_lambda, visual
         rec_type=rec_type,
     )
 
+
+def NLPScore(ref, hypo):
+    """
+    ref, dictionary of reference sentences (id, sentence) , prediction
+    hypo, dictionary of hypothesis sentences (id, sentence), GT
+    score, dictionary of scores
+    """
+    scorers = [
+        (Bleu(4), ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4"]),
+        (Meteor(),"METEOR"),
+        (Rouge(), "ROUGE_L"),
+        (Cider(), "CIDEr")
+    ]
+    final_scores = {}
+    for scorer, method in scorers:
+        score, scores = scorer.compute_score(ref, hypo)
+        if type(score) == list:
+            for m, s in zip(method, score):
+                final_scores[m] = s
+        else:
+            final_scores[method] = score
+    return final_scores
 
 if __name__ == "__main__":
     batch_size = 2
