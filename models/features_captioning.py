@@ -141,10 +141,10 @@ class FeaturesCaptioning(nn.Module):
 
         hidden = self._init_hidden(batch_size)
 
-        input_list = [ torch.LongTensor(1, batch_size).fill_(SOS_idx) ]
+        input_list = [ torch.LongTensor(1, batch_size).fill_(SOS_idx).to(self.device) ]
         hidden_list = [ hidden ]
-        cum_prob_list = [ torch.ones(batch_size) ]
-        cum_prob_list = [ torch.log(cum_prob) for cum_prob in cum_prob_list ]
+        cum_prob_list = [ torch.ones(batch_size).to(self.device) ]
+        cum_prob_list = [ torch.log(cum_prob).to(self.device) for cum_prob in cum_prob_list ]
         output_list = [ [[]] for _ in range(batch_size) ]
 
         for t in range(max_caption_len + 1):
@@ -158,19 +158,22 @@ class FeaturesCaptioning(nn.Module):
 
             assert len(input_list) == len(hidden_list) == len(cum_prob_list)
             for i, (prev_words, hidden, cum_prob) in enumerate(zip(input_list, hidden_list, cum_prob_list)):
+                
+                # print(feats.device, prev_words.device, hidden[0].device)
+
                 output, next_hidden, _ = self.forward_word(feats, hidden, prev_words)
 
                 caption_list = [ output_list[b][i] for b in range(batch_size)]
                 EOS_mask = [ 0. if EOS_idx in [ idx.item() for idx in caption ] else 1. for caption in caption_list ]
-                EOS_mask = torch.FloatTensor(EOS_mask)
+                EOS_mask = torch.FloatTensor(EOS_mask).to(self.device)
                 EOS_mask = EOS_mask.unsqueeze(1).expand_as(output)
                 output = EOS_mask * output
 
-                output += cum_prob.unsqueeze(1)
+                output += cum_prob.unsqueeze(1).to(self.device)
                 beam_output_list.append(output)
 
                 caption_lens = [ [ idx.item() for idx in caption ].index(EOS_idx) + 1 if EOS_idx in [ idx.item() for idx in caption ] else t + 1 for caption in caption_list ]
-                caption_lens = torch.FloatTensor(caption_lens)
+                caption_lens = torch.FloatTensor(caption_lens).to(self.device)
                 normalizing_factor = ((5 + caption_lens) ** alpha) / (6 ** alpha)
                 normalizing_factor = normalizing_factor.unsqueeze(1).expand_as(output)
                 normalized_output = output / normalizing_factor
