@@ -29,8 +29,9 @@ class TrainerConfig:
     lr_decay_patience = 5  
 
     ## Reconstructor Regularizer
-    reg_lambda = 0  # 0.001
-    recon_lambda = 0
+    reg_lambda = 0.001  # 0.001
+    audio_recon_lambda = 10
+    visual_recon_lambda = 10
 
 
 class Trainer:
@@ -150,15 +151,6 @@ class Trainer:
                     features,
                     features_recons,
                 )
-                # loss, ce, e, recon = TotalReconstructionLoss(
-                #     outputs,
-                #     captions,
-                #     features,
-                #     features_recons,
-                #     reg_lambda=0,
-                #     recon_lambda=0,
-                #     reconstruction_type=model.reconstructor_type,
-                # )
                 loss.mean().backward()
 
                 if self.gradient_clip_value > 0:
@@ -212,16 +204,6 @@ class Trainer:
                         features,
                         features_recons,
                     )
-                    # loss, ce, e, recon = TotalReconstructionLoss(
-                    #     outputs,
-                    #     captions,
-                    #     features,
-                    #     features_recons,
-                    #     reg_lambda=0,
-                    #     recon_lambda=0,
-                    #     reconstruction_type=model.reconstructor_type,
-                    # )
-
                     total_loss += loss.mean().item()
                     cross_entropy_loss += ce.mean().item()
                     entropy_loss += e.mean().item()
@@ -278,7 +260,6 @@ if __name__ == "__main__":
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
-    
     test_loader, _ = get_loader(
         root_dir=dataset_folder,
         split="tiny" if DEBUG else "test",
