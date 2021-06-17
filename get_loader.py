@@ -69,6 +69,18 @@ class Vocabulary:
     def load(path):
         return pickle.load(open(path, 'rb'))
 
+    def decode_indexes(self, indexes):
+        words = []
+        EOS_idx = 2
+        for idx in indexes:
+            if type(idx) is torch.Tensor:
+                idx = idx.item()
+            if idx == EOS_idx:
+                break
+            words.append(self.itos[idx])
+        sentence = ' '.join(words)
+        return sentence
+
 
 def build_MSVD_vocab():
     dataset_folder = os.path.join("datasets", "MSVD")

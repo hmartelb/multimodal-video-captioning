@@ -271,7 +271,7 @@ if __name__ == "__main__":
     )
 
     model = AVCaptioning(
-        vocab_size=len(vocab),
+        vocab=vocab,
         teacher_forcing_ratio=0.5,
         no_reconstructor=False,
         device=device,
