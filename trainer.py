@@ -9,7 +9,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from get_loader import Vocabulary, get_loader, VideoDataset_to_VideoCaptionsLoader
-from losses import ReconstructionLossBuilder, TotalReconstructionLoss
+from losses import ReconstructionLossBuilder, TotalReconstructionLoss, NLPScore
 from models import AVCaptioning
 
 import gc
@@ -248,8 +248,18 @@ class Trainer:
         }
 
     def eval(self, model, videoCaptions_dataloader):
-        print("TODO:: EVAL")
-        return -999
+        model.eval()
+        vid_GT = {}
+        vid_gen = {}
+        with tqdm(videoCaptions_dataloader, desc="EVAL ") as progress:
+            for i, (vid_ids, features, captions) in enumerate(progress):
+                generated_captions = model.predict(features, max_caption_len=30, beam_alpha=0, beam_width=5)
+                vid_GT.update({k:v for k, v in zip(vid_ids, captions)})
+                vid_gen.update({k:[v] for k, v in zip(vid_ids, generated_captions)})
+
+        scores = NLPScore(vid_GT, vid_gen) 
+        # print(scores)
+        return scores
 
 if __name__ == "__main__":
     from models import FeaturesCaptioning
