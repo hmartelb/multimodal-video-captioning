@@ -205,11 +205,14 @@ class VideoCaptionsDataset(Dataset):
         video_features = video_features[0:n_frames, :]
         audio_features = audio_features[0:n_frames, :]
 
-        features = np.concatenate([video_features, audio_features], axis=1)
+        # Frame-wise normalization
+        video_features /= np.sum(video_features, axis=1, keepdims=True)
+        audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
+        # features = np.concatenate([video_features, audio_features], axis=1)
         captions = self.vid_cap_dict[video_id_full]
 
-        return video_id_full, torch.tensor(features), captions
+        return video_id_full, torch.tensor(audio_features), torch.tensor(video_features), captions
 
 class VideoCaptionsCollect:
     '''
@@ -224,12 +227,14 @@ class VideoCaptionsCollect:
     def __call__(self, batch):
         video_ids = [item[0] for item in batch]
 
-        features = [item[1].unsqueeze(0) for item in batch]
-        features = [item[1] for item in batch]
-        features = pad_sequence(features, batch_first=True, padding_value=0)
+        audio_features = [item[1] for item in batch]
+        audio_features = pad_sequence(audio_features, batch_first=True, padding_value=0)
 
-        captions = [item[2] for item in batch]
-        return video_ids, features, captions
+        visual_features = [item[2] for item in batch]
+        visual_features = pad_sequence(visual_features, batch_first=True, padding_value=0)
+
+        captions = [item[3] for item in batch]
+        return video_ids, audio_features, visual_features, captions
 
 def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0):
 
@@ -250,39 +255,6 @@ def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers
     )
 
     return loader
-
-
-# class FlickrDataset(Dataset):
-#     def __init__(self, root_dir, captions_file, transform=None, freq_threshold=5):
-#         self.root_dir = root_dir
-#         self.df = pd.read_csv(captions_file)
-#         self.transform = transform
-
-#         # Get img, caption columns
-#         self.imgs = self.df["image"]
-#         self.captions = self.df["caption"]
-
-#         # Initialize vocabulary and build vocab
-#         self.vocab = Vocabulary(freq_threshold)
-#         self.vocab.build_vocabulary(self.captions.tolist())
-
-#     def __len__(self):
-#         return len(self.df)
-
-#     def __getitem__(self, index):
-#         caption = self.captions[index]
-#         img_id = self.imgs[index]
-#         img = Image.open(os.path.join(self.root_dir, img_id)).convert("RGB")
-
-#         if self.transform is not None:
-#             img = self.transform(img)
-
-#         numericalized_caption = [self.vocab.stoi["<SOS>"]]
-#         numericalized_caption += self.vocab.numericalize(caption)
-#         numericalized_caption.append(self.vocab.stoi["<EOS>"])
-
-#         return img, torch.tensor(numericalized_caption)
-
 
 class CustomCollate:
     '''
@@ -337,7 +309,6 @@ def get_loader(
     vocab_pkl=None,
 ):
     dataset = MSVD_Dataset(root_dir, split=split, vocab_pkl=vocab_pkl)
-
     pad_idx = dataset.vocab.stoi["<PAD>"]
 
     loader = DataLoader(
@@ -348,19 +319,12 @@ def get_loader(
         pin_memory=pin_memory,
         collate_fn=CustomCollateAV(pad_idx=pad_idx),
     )
-
     return loader, dataset
 
 
 if __name__ == "__main__":
-    # transform = transforms.Compose(
-    #     [transforms.Resize((224, 224)), transforms.ToTensor(),]
-    # )
-
     ## one time setup
     # build_MSVD_vocab()
-
-    
 
     dataset_folder = os.path.join("datasets", "MSVD")
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
@@ -380,15 +344,9 @@ if __name__ == "__main__":
 
     for loader in [train_loader]:#, val_loader, test_loader]:
         for idx, (features, captions) in enumerate(loader):
-            # print(idx, features.shape, captions.shape)
-
             features, captions = features.cuda(), captions.cuda()
 
             output, recons = model.decode(features, captions)
             print(idx, features.shape, captions.shape, output.shape)
             if idx == 50:
                 break
-
-    # data = MSVDDataset(root_dir=os.path.join("datasets", "MSVD"), split="val")
-    # print(len(data))
-    # print(data.__getitem__(0))
