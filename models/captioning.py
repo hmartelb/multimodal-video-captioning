@@ -49,7 +49,7 @@ class AVCaptioning(nn.Module):
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
         config = DECODER_CONFIG.copy()
-        config['output_size'] = vocab_size
+        config['output_size'] = self.vocab_size
 
         rec_config = RECONSTRUCTOR_CONFIG.copy()
         rec_config['decoder_size'] = config['rnn_hidden_size']
