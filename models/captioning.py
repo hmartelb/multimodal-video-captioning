@@ -38,17 +38,18 @@ RECONSTRUCTOR_CONFIG = {
 class AVCaptioning(nn.Module):
     def __init__(
         self,
-        vocab_size,
+        vocab,
         teacher_forcing_ratio=0.0,
         no_reconstructor = False,
         device='cpu',
     ):
         super(AVCaptioning, self).__init__()
-        self.vocab_size = vocab_size
+        self.vocab = vocab
+        self.vocab_size = len(vocab)
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
         config = DECODER_CONFIG.copy()
-        config['output_size'] = vocab_size
+        config['output_size'] = self.vocab_size
 
         rec_config = RECONSTRUCTOR_CONFIG.copy()
         rec_config['decoder_size'] = config['rnn_hidden_size']
@@ -100,4 +101,10 @@ class AVCaptioning(nn.Module):
 
         return outputs, audio_recons, visual_recons
         # return outputs, features_recons
-    
+
+    def predict(self, features, max_caption_len=30, beam_alpha=0, beam_width=5):
+        outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
+
+        captions = [self.vocab.decode_prediction(o[1:]) for o in outputs]
+
+        return captions

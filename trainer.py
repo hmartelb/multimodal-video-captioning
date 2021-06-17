@@ -9,7 +9,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import transforms
 from tqdm import tqdm
 
-from get_loader import Vocabulary, get_loader
 from losses import (
     ModalityWiseReconstructionLoss,
     ModalityWiseReconstructionLossBuilder,
@@ -17,13 +16,18 @@ from losses import (
     TotalReconstructionLoss,
 )
 from models import AVCaptioning
+from get_loader import Vocabulary, get_loader, VideoDataset_to_VideoCaptionsLoader
+from models import AVCaptioning
 
+import gc
+
+DEBUG = True ## FIXME: Before training
 
 class TrainerConfig:
     batch_size = 128
 
-    epochs = 20
-    lr = 1e-4  # 5e-5
+    epochs = 2 if DEBUG else 50
+    lr = 1e-4
     weight_decay = 1e-5
     optimizer = optim.Adam
     gradient_clip_value = 5.0
@@ -77,7 +81,7 @@ class Trainer:
             self.checkpoint_name,
         )
 
-    def fit(self, model, train_loader, val_loader, device, train_config):
+    def fit(self, model, train_loader, val_loader, test_loader, device, train_config):
         self.device = device
 
         # Training utils
@@ -108,12 +112,17 @@ class Trainer:
         self.previous_epochs = 0
         self.best_loss = 1e6
 
+        ## VideoCaptionsDataloader for Evaluation
+        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, train_config.batch_size)
+        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, train_config.batch_size)
+
         # Start training
         for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
             print(f"\nEpoch {epoch}/{train_config.epochs}:")
 
             train_loss = self.train(model, train_loader)
             val_loss = self.test(model, val_loader)
+            val_score = self.eval(model, val_vidCap_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
@@ -128,6 +137,8 @@ class Trainer:
 
                 self.best_loss = val_loss["total"]
                 self._save_checkpoint(epoch, model, {})  # FIXME: empty config
+
+        test_score = self.eval(model, test_vidCap_loader)
 
         return self.history
 
@@ -250,6 +261,9 @@ class Trainer:
             "v_recon": visual_reconstruction_loss / len(dataloader),
         }
 
+    def eval(self, model, videoCaptions_dataloader):
+        print("TODO:: EVAL")
+        return -999
 
 if __name__ == "__main__":
     from models import FeaturesCaptioning
@@ -265,7 +279,6 @@ if __name__ == "__main__":
 
     train_config = TrainerConfig()
 
-    DEBUG = False
 
     train_loader, train_dataset = get_loader(
         root_dir=dataset_folder,
@@ -279,6 +292,13 @@ if __name__ == "__main__":
         batch_size=train_config.batch_size,
         vocab_pkl=vocab_pkl,
     )
+    
+    test_loader, _ = get_loader(
+        root_dir=dataset_folder,
+        split="tiny" if DEBUG else "test",
+        batch_size=train_config.batch_size,
+        vocab_pkl=vocab_pkl,
+    )
 
     CHECKPOINTS_DIR = os.path.join("checkpoints")
 
@@ -287,7 +307,7 @@ if __name__ == "__main__":
     # ]
 
     model = AVCaptioning(
-        vocab_size=len(vocab),
+        vocab=vocab,
         teacher_forcing_ratio=0.5,
         no_reconstructor=False,
         device=device,
@@ -300,6 +320,7 @@ if __name__ == "__main__":
         model,
         train_loader,
         val_loader,
+        test_loader,
         device,
         train_config,
     )
