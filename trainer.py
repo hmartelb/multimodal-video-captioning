@@ -23,7 +23,7 @@ class TrainerConfig:
     batch_size = 128
 
     epochs = 20
-    lr = 1e-4#5e-5
+    lr = 1e-4  # 5e-5
     weight_decay = 1e-5
     optimizer = optim.Adam
     gradient_clip_value = 5.0
@@ -33,8 +33,8 @@ class TrainerConfig:
     lr_decay_patience = 5
 
     ## Reconstructor Regularizer
-    reg_lambda = 0  # 0.001
-    audio_recon_lambda = 0.2
+    reg_lambda = 0.001  # 0.001
+    audio_recon_lambda = 0.2 * 1e-3
     visual_recon_lambda = 0.2
 
 
@@ -92,7 +92,7 @@ class Trainer:
             verbose=True,
         )
         self.gradient_clip_value = train_config.gradient_clip_value
-        
+
         self.reg_lambda = train_config.reg_lambda
         self.audio_recon_lambda = train_config.audio_recon_lambda
         self.visual_recon_lambda = train_config.visual_recon_lambda
@@ -141,19 +141,23 @@ class Trainer:
         model.train()
 
         with tqdm(dataloader, desc="TRAIN") as progress:
-            for i, (features, captions) in enumerate(progress):
+            for i, (audio_features, visual_features, captions) in enumerate(progress):
                 self.optimizer.zero_grad()
-                features, captions = features.to(self.device), captions.to(self.device)
+                audio_features, visual_features, captions = (
+                    audio_features.to(self.device),
+                    visual_features.to(self.device),
+                    captions.to(self.device),
+                )
 
-                outputs, features_recons = model(features, captions)
+                outputs, audio_recons, visual_recons = model(audio_features, visual_features, captions)
 
                 loss, ce, e, a_recon, v_recon = self.RecLoss(
                     outputs,
                     captions,
-                    features[:, :, 1000:],  # Audio features [1000-1128]
-                    features_recons[:, :, 1000:],
-                    features[:, :, 0:1000],  # Visual features [0-1000]
-                    features_recons[:, :, 0:1000],
+                    audio_features,  # Audio features [1000-1128]
+                    audio_recons,
+                    visual_features,  # Visual features [0-1000]
+                    visual_recons,
                 )
                 loss.mean().backward()
 
@@ -201,17 +205,21 @@ class Trainer:
 
         with torch.no_grad():
             with tqdm(dataloader, desc="TEST ") as progress:
-                for i, (features, captions) in enumerate(progress):
-                    features, captions = features.to(self.device), captions.to(self.device)
+                for i, (audio_features, visual_features, captions) in enumerate(progress):
+                    audio_features, visual_features, captions = (
+                        audio_features.to(self.device),
+                        visual_features.to(self.device),
+                        captions.to(self.device),
+                    )
 
-                    outputs, features_recons = model(features, captions)
+                    outputs, audio_recons, visual_recons = model(audio_features, visual_features, captions)
                     loss, ce, e, a_recon, v_recon = self.RecLoss(
                         outputs,
                         captions,
-                        features[:, :, 1000:],  # Audio features [1000-1128]
-                        features_recons[:, :, 1000:],
-                        features[:, :, 0:1000],  # Visual features [0-1000]
-                        features_recons[:, :, 0:1000],
+                        audio_features,  # Audio features [1000-1128]
+                        audio_recons,
+                        visual_features,  # Visual features [0-1000]
+                        visual_recons,
                     )
 
                     total_loss += loss.mean().item()
