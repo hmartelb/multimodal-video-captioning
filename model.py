@@ -49,7 +49,8 @@ class ImageEncoder(nn.Module):
         self,
         # embedding_dim,
         model="inception_v3",
-        transforms=None,
+        # transform=None,
+        normalize=True,
         trainable=False,
     ):
         super(ImageEncoder, self).__init__()
@@ -82,6 +83,12 @@ class ImageEncoder(nn.Module):
         # Make batch videos into batch of images (all frames of all videos stacked)
         if stack_frames:
             frames = frames.view(frames_shape[0] * frames_shape[1], frames_shape[2], frames_shape[3], frames_shape[4])
+        
+        if normalize:
+            frames = torchvision.transforms.normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
 
         features = self.extractor(frames)
 

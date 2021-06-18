@@ -7,7 +7,7 @@ import torch
 import torchaudio
 from pydub import AudioSegment
 
-from model import AudioEncoder, ImageEncoder
+from models import AudioEncoder, VisualEncoder
 
 
 def make_path(directory):
@@ -17,8 +17,8 @@ def make_path(directory):
 
 class FeatureExtractor:
     def __init__(self):
-        self.audio_extractor = AudioEncoder()
-        self.image_extractor = ImageEncoder(model="inception_v3")
+        self.audio_extractor = AudioEncoder(model="vggish", trainable=False)
+        self.image_extractor = VisualEncoder(model="inception_v3", trainable=False, normalize=True)
 
         self.set_device(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
@@ -36,18 +36,19 @@ class FeatureExtractor:
         # 1) Extract and export the audio track
         # 2) Load with torchaudio
 
-        temp_filename = "temp.wav"
+        audio_filename = filename.replace("videos", "audios").replace(".avi", ".wav")
+        # print(audio_filename)
 
         # Step 1
         clip = mp.VideoFileClip(filename)
         if clip.audio:
-            clip.audio.write_audiofile(temp_filename, codec="pcm_s16le")
+            clip.audio.write_audiofile(audio_filename, codec="pcm_s16le")
         else:
             audio = AudioSegment.silent(duration=1000 * clip.duration)
-            audio.export(temp_filename, format="wav")
+            audio.export(audio_filename, format="wav")
 
         # Step 2
-        audio, sr = torchaudio.load(temp_filename)
+        audio, sr = torchaudio.load(audio_filename)
 
         return self.audio_extractor.from_tensor(audio, sr)
 
@@ -141,12 +142,13 @@ if __name__ == "__main__":
                 "Processing file": f"{name}{ext}",
                 "Failures": len(failures)
             })
-            try:
-                video_f, audio_f = fe.extract(os.path.join(VIDEOS_DIR, f), to_numpy=True)
-                
-                np.save(os.path.join(VIDEO_FEATURES_DIR, name), video_f)
-                np.save(os.path.join(AUDIO_FEATURES_DIR, name), audio_f)
-            except:
-                failures.append(f"{name}{ext}")
+            # try:
+            video_f, audio_f = fe.extract(os.path.join(VIDEOS_DIR, f), to_numpy=True)
+            
+            np.save(os.path.join(VIDEO_FEATURES_DIR, name), video_f)
+            np.save(os.path.join(AUDIO_FEATURES_DIR, name), audio_f)
+
+            # except:
+            #     failures.append(f"{name}{ext}")
 
     print(failures)

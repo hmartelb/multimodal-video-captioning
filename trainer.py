@@ -330,54 +330,54 @@ if __name__ == "__main__":
         # NO reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_base",
-        },
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
             "loss": {"reg_lambda": 0.001, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
             "checkpoint_name": "SA-LSTM_50_epochs_reg_1e-3",
         },
-        # LOCAL reconstructors
         {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_audio_local",
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+            "checkpoint_name": "SA-LSTM_50_epochs_base",
         },
+        # LOCAL reconstructors
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_audio_local",
+        # },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
             "checkpoint_name": "SA-LSTM_50_epochs_visual_local",
         },
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
-            "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_local",
-        },
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_local",
+        # },
         # GLOBAL reconstructors
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_audio_global",
+        # },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_audio_global",
-        },
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
+            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
             "checkpoint_name": "SA-LSTM_50_epochs_visual_global",
         },
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 1e-4},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
-            "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_global",
-        },
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_global",
+        # },
     ]
 
     for exp in experiments:

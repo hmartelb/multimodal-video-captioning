@@ -62,20 +62,20 @@ class Vocabulary:
         vocab.save_vocab(outpath)
 
     def save_vocab(self, path):
-        pickle.dump(self, open(path, 'wb+'))
+        pickle.dump(self, open(path, "wb+"))
         print(f"Vocab saved: {path}")
 
     @staticmethod
     def load(path):
-        return pickle.load(open(path, 'rb'))
+        return pickle.load(open(path, "rb"))
 
     def apply_vocab(self, sentence):
-        '''
+        """
         convert token not in vocab to "<UNK>"
-        '''
+        """
         tokenized_text = self.tokenizer_eng(sentence)
         tokens = [token if token in self.stoi else "<UNK>" for token in tokenized_text]
-        return ' '.join(tokens)
+        return " ".join(tokens)
 
     def decode_indexes(self, indexes):
         words = []
@@ -86,7 +86,7 @@ class Vocabulary:
             if idx == EOS_idx:
                 break
             words.append(self.itos[idx])
-        sentence = ' '.join(words)
+        sentence = " ".join(words)
         return sentence
 
 
@@ -115,7 +115,12 @@ class MSVD_Dataset(Dataset):
         assert os.path.isdir(root_dir), "The dataset root directory does not exist"
         assert os.path.isdir(os.path.join(root_dir, "metadata")), "The dataset metadata directory does not exist"
         assert os.path.isdir(os.path.join(root_dir, "features")), "The dataset features directory does not exist"
-        assert split in ["train", "val", "test", "tiny"], "Wrong split specified, must be one of ['train', 'val', 'test']"
+        assert split in [
+            "train",
+            "val",
+            "test",
+            "tiny",
+        ], "Wrong split specified, must be one of ['train', 'val', 'test']"
 
         self.captions_file = os.path.join(root_dir, "metadata", f"{split}.csv")
         assert os.path.isfile(self.captions_file), f"The captions file cannot be found {self.captions_file}"
@@ -149,7 +154,7 @@ class MSVD_Dataset(Dataset):
         video_features = np.load(video_features_file)
         audio_features = np.load(audio_features_file)
 
-        # quick fix,there are some feature in shape (128,) when number of frame is 1 
+        # quick fix,there are some feature in shape (128,) when number of frame is 1
         # e.g. 'rOic25PnIx8_1_3'
         if len(audio_features.shape) < 2:
             audio_features = audio_features.reshape((-1, 128))
@@ -161,13 +166,14 @@ class MSVD_Dataset(Dataset):
         audio_features = audio_features[0:n_frames, :]
 
         # Frame-wise normalization
-        video_features /= np.sum(video_features, axis=1, keepdims=True)
-        audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+        # video_features /= np.sum(video_features, axis=1, keepdims=True)
+        # audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
         return torch.tensor(audio_features), torch.tensor(video_features), torch.tensor(caption_tokens)
 
         # features = np.concatenate([video_features, audio_features], axis=1)
         # return torch.tensor(features), torch.tensor(caption_tokens)
+
 
 class VideoCaptionsDataset(Dataset):
     def __init__(
@@ -175,9 +181,9 @@ class VideoCaptionsDataset(Dataset):
         root_dir,
         vid_cap_dict,
     ):
-        '''
+        """
         vid_cap_dict: dict({ vid: [captions] })
-        '''
+        """
         self.root_dir = root_dir
         self.vid_cap_dict = vid_cap_dict
         self.video_ids = list(vid_cap_dict.keys())
@@ -194,7 +200,7 @@ class VideoCaptionsDataset(Dataset):
         video_features = np.load(video_features_file)
         audio_features = np.load(audio_features_file)
 
-        # quick fix,there are some feature in shape (128,) when number of frame is 1 
+        # quick fix,there are some feature in shape (128,) when number of frame is 1
         # e.g. 'rOic25PnIx8_1_3'
         if len(audio_features.shape) < 2:
             audio_features = audio_features.reshape((-1, 128))
@@ -206,21 +212,23 @@ class VideoCaptionsDataset(Dataset):
         audio_features = audio_features[0:n_frames, :]
 
         # Frame-wise normalization
-        video_features /= np.sum(video_features, axis=1, keepdims=True)
-        audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+        # video_features /= np.sum(video_features, axis=1, keepdims=True)
+        # audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
         # features = np.concatenate([video_features, audio_features], axis=1)
         captions = self.vid_cap_dict[video_id_full]
 
         return video_id_full, torch.tensor(audio_features), torch.tensor(video_features), captions
 
+
 class VideoCaptionsCollect:
-    '''
+    """
     return batch data (features, captions) in the shape of:
     features: [batchsize, length, feat_dim]
     captions: [length, batchsize]
-    
-    '''
+
+    """
+
     def __init__(self):
         pass
 
@@ -236,13 +244,14 @@ class VideoCaptionsCollect:
         captions = [item[3] for item in batch]
         return video_ids, audio_features, visual_features, captions
 
+
 def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0):
 
     full_video_id = lambda x: f"{x['VideoID']}_{x['Start']}_{x['End']}"
     df = pd.DataFrame()
     df["FullVideoID"] = videodataset.metadata.apply(full_video_id, axis=1)
     df["Caption"] = videodataset.metadata["Description"].apply(videodataset.vocab.apply_vocab)
-    vid_captions_dict = df[['FullVideoID', 'Caption']].groupby('FullVideoID')['Caption'].apply(list).to_dict()
+    vid_captions_dict = df[["FullVideoID", "Caption"]].groupby("FullVideoID")["Caption"].apply(list).to_dict()
 
     videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict)
 
@@ -256,13 +265,15 @@ def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers
 
     return loader
 
+
 class CustomCollate:
-    '''
+    """
     return batch data (features, captions) in the shape of:
     features: [batchsize, length, feat_dim]
     captions: [length, batchsize]
-    
-    '''
+
+    """
+
     def __init__(self, pad_idx):
         self.pad_idx = pad_idx
 
@@ -276,23 +287,25 @@ class CustomCollate:
 
         return features, captions
 
+
 class CustomCollateAV:
-    '''
+    """
     return batch data (features, captions) in the shape of:
     features: [batchsize, length, feat_dim]
     captions: [length, batchsize]
-    
-    '''
+
+    """
+
     def __init__(self, pad_idx):
         self.pad_idx = pad_idx
 
     def __call__(self, batch):
         audio_features = [item[0] for item in batch]
         audio_features = pad_sequence(audio_features, batch_first=True, padding_value=0)
-        
+
         video_features = [item[1] for item in batch]
         video_features = pad_sequence(video_features, batch_first=True, padding_value=0)
-        
+
         captions = [item[2] for item in batch]
         captions = pad_sequence(captions, batch_first=False, padding_value=self.pad_idx)
 
@@ -330,23 +343,77 @@ if __name__ == "__main__":
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
     train_loader, train_dataset = get_loader(root_dir=dataset_folder, split="train", batch_size=32)
     val_loader, val_dataset = get_loader(root_dir=dataset_folder, split="val", batch_size=16, vocab_pkl=vocab_pkl)
-    test_loader, test_dataset = get_loader(root_dir=dataset_folder, split="test", batch_size=1, shuffle=False, vocab_pkl=vocab_pkl)
+    test_loader, test_dataset = get_loader(
+        root_dir=dataset_folder, split="test", batch_size=1, shuffle=False, vocab_pkl=vocab_pkl
+    )
 
     print(len(train_dataset.vocab))
 
-    from models import Decoder
-    model = Decoder(
-        output_size=3056,
-        attn_size=128,
-        max_caption_len=18,
-    )
-    model = model.cuda()
+    # from models import Decoder
+    # model = Decoder(
+    #     output_size=3056,
+    #     attn_size=128,
+    #     max_caption_len=18,
+    # )
+    # model = model.cuda()
 
-    for loader in [train_loader]:#, val_loader, test_loader]:
-        for idx, (features, captions) in enumerate(loader):
-            features, captions = features.cuda(), captions.cuda()
+    for loader in [train_loader]:  # , val_loader, test_loader]:
+        for idx, (audio_features, visual_features, captions) in enumerate(loader):
+            # features, captions = features.cuda(), captions.cuda()
 
-            output, recons = model.decode(features, captions)
-            print(idx, features.shape, captions.shape, output.shape)
-            if idx == 50:
+            captions_decoded = train_dataset.vocab.decode_indexes(captions[:, 0])
+
+            # output, recons = model.decode(features, captions)
+            print(idx, audio_features.shape, visual_features.shape, captions.shape)#, output.shape)
+            # print("-" * 50)
+            # print(idx)
+            # print("\nAudio:")
+            # print(audio_features.shape)
+            # print("\nVisual")
+            # print(visual_features.shape)
+            # print("\nCaption:")
+            # print(captions[:,0])
+            # print(captions_decoded)
+            # print("-" * 50)
+
+            if idx == 5:
                 break
+
+
+    # val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, 1)
+
+    # for loader in [val_vidCap_loader]:  # , val_loader, test_loader]:
+    #     for idx, (video_id, audio_features, visual_features, captions) in enumerate(loader):
+    #         # features, captions = features.cuda(), captions.cuda()
+
+    #         # captions_decoded = train_dataset.vocab.decode_indexes(captions[0])
+
+    #         # output, recons = model.decode(features, captions)
+    #         # print(idx, features.shape, captions.shape, output.shape)
+    #         print("-" * 50)
+    #         print(idx, video_id)
+    #         print("\nAudio:")
+    #         print(audio_features)
+    #         print("\nVisual")
+    #         print(visual_features)
+    #         print("\nCaption:")
+    #         print(captions)
+    #         # print(captions_decoded)
+    #         print("-" * 50)
+
+    #         # if idx > 1:
+    #         #     audio_diff = audio_features - last_audio_features
+    #         #     visual_diff = visual_features - last_visual_features
+
+    #         #     print(
+    #         #         f"Equal ? : {torch.eq(audio_features, last_audio_features).all()}, {torch.eq(visual_features, last_visual_features).all()}"
+    #         #     )
+
+    #             # print(audio_diff.sum())
+    #             # print(visual_diff.sum())
+
+    #         # last_audio_features = torch.clone(audio_features)
+    #         # last_visual_features = torch.clone(visual_features)
+
+    #         if idx == 5:
+    #             break
