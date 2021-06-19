@@ -31,18 +31,11 @@ if __name__ == '__main__':
                                 # "preferredquality": "192",
                             }
                         ],
-                        # FIXME: this does not work, donwloading ALL the audio for now...
-                        # "postprocessor_args": [
-                        #     {
-                        #         "-ar": "16000",
-                        #         "-ss": f"{start}",
-                        #         "-t": f"{end-start}", 
-                        #     }
-                        # ]
                     }
                     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
                     
+                    # Trim the audio from start to end (in AudioSegment 1 second = 1000 samples)
                     song = AudioSegment.from_file(output_name)
                     song = song[1000*start:1000*end]
                     song.export(output_name, format="wav")
