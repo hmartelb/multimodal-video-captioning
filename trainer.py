@@ -111,7 +111,7 @@ class Trainer:
             rec_type=model.reconstructor_type,
         )
 
-        self.history = {"train_loss": [], "val_loss": [], "val_score": [], "test_loss": [], "test_score": []}
+        self.history = {"train_loss": [], "train_score": [], "val_loss": [], "val_score": [], "test_loss": [], "test_score": []}
         self.previous_epochs = 0
         self.best_loss = 1e6
 
@@ -119,8 +119,9 @@ class Trainer:
         model.to(self.device)
 
         ## VideoCaptionsDataloader for Evaluation
-        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, 4)  # train_config.batch_size)
-        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, 4)  # ,train_config.batch_size)
+        train_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(train_loader.dataset, train_config.batch_size)
+        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, train_config.batch_size)
+        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, train_config.batch_size)
 
         # Start training
         for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
@@ -133,7 +134,9 @@ class Trainer:
             self.history["val_loss"].append(val_loss)
             
             if epoch % self.eval_freq == 0 or epoch == train_config.epochs:
+                train_score = self.eval(model, train_vidCap_loader)
                 val_score = self.eval(model, val_vidCap_loader)
+                self.history["train_score"].append(train_score)
                 self.history["val_score"].append(val_score)
 
                 # TODO:
@@ -182,12 +185,19 @@ class Trainer:
 
                 outputs, audio_recons, visual_recons = model(audio_features, visual_features, captions)
 
+                # print("\n",
+                #     dataloader.dataset.vocab.decode_indexes(outputs[:,0].argmax(1)), 
+                #     "\n",
+                #     dataloader.dataset.vocab.decode_indexes(captions[:,0]),
+                #     "\n",
+                # )
+
                 loss, ce, e, a_recon, v_recon = self.RecLoss(
                     outputs,
                     captions,
-                    audio_features,  # Audio features [1000-1128]
+                    audio_features,
                     audio_recons,
-                    visual_features,  # Visual features [0-1000]
+                    visual_features,
                     visual_recons,
                 )
                 loss.mean().backward()
@@ -294,9 +304,9 @@ class Trainer:
                 vid_GT.update({k: v for k, v in zip(vid_ids, captions)})
                 vid_gen.update({k: [v] for k, v in zip(vid_ids, generated_captions)})
 
-            print("\nExample captions: [generated] (ground_truth)")
+            print("\nExample captions: key >> [generated] (ground_truth)")
             for i, key in enumerate(vid_GT):
-                print(f"[{vid_gen[key][0]}] ({vid_GT[key][0]})")
+                print(f"{key} >> [{vid_gen[key][0]}] ({vid_GT[key][0]})")
                 if i >= 10:
                     break
             print()
@@ -327,55 +337,56 @@ if __name__ == "__main__":
     CHECKPOINTS_DIR = os.path.join("checkpoints")
 
     experiments = [
-        # NO reconstructor
+        # # NO reconstructor
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+        #     "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0.001, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_1e-3",
+        # },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
-            "loss": {"reg_lambda": 0.001, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_1e-3",
-        },
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-4},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
             "checkpoint_name": "SA-LSTM_50_epochs_base",
         },
+
         # LOCAL reconstructors
         # {
         #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+        #     "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
         #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
         #     "checkpoint_name": "SA-LSTM_50_epochs_audio_local",
         # },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
+            "training": {"batch_size": 64, "epochs": 0, "lr": 5e-5},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0.2},
             "checkpoint_name": "SA-LSTM_50_epochs_visual_local",
         },
         # {
         #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
-        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
+        #     "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 1},
         #     "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_local",
         # },
         # GLOBAL reconstructors
         # {
         #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
+        #     "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
         #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 0},
         #     "checkpoint_name": "SA-LSTM_50_epochs_audio_global",
         # },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
-            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 10},
+            "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
+            "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0.2},
             "checkpoint_name": "SA-LSTM_50_epochs_visual_global",
         },
         # {
         #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-5},
-        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 10},
+        #     "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
+        #     "loss": {"reg_lambda": 0, "audio_recon_lambda": 10, "visual_recon_lambda": 1},
         #     "checkpoint_name": "SA-LSTM_50_epochs_audiovisual_global",
         # },
     ]
@@ -434,7 +445,7 @@ if __name__ == "__main__":
         
         checkpoint_name = os.path.join(CHECKPOINTS_DIR, exp["checkpoint_name"] + ".ckpt")#(".ckpt" if not exp["checkpoint_name"].endswith(".ckpt") else "")
         
-        tr = Trainer(checkpoint_name=checkpoint_name, eval_freq=5)
+        tr = Trainer(checkpoint_name=checkpoint_name, eval_freq=1)
         history = tr.fit(
             model,
             train_loader,

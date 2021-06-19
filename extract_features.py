@@ -35,17 +35,18 @@ class FeatureExtractor:
         #
         # 1) Extract and export the audio track
         # 2) Load with torchaudio
-
-        audio_filename = filename.replace("videos", "audios").replace(".avi", ".wav")
+        _, ext = os.path.splitext(filename)
+        audio_filename = filename.replace("videos", "audios").replace(ext, ".wav")
         # print(audio_filename)
 
-        # Step 1
-        clip = mp.VideoFileClip(filename)
-        if clip.audio:
-            clip.audio.write_audiofile(audio_filename, codec="pcm_s16le")
-        else:
-            audio = AudioSegment.silent(duration=1000 * clip.duration)
-            audio.export(audio_filename, format="wav")
+        if not os.path.isfile(audio_filename):
+            # Step 1
+            clip = mp.VideoFileClip(filename)
+            if clip.audio:
+                clip.audio.write_audiofile(audio_filename, codec="pcm_s16le", verbose=False, logger=None)
+            else:
+                audio = AudioSegment.silent(duration=1000 * clip.duration, frame_rate=16000)
+                audio.export(audio_filename, format="wav")
 
         # Step 2
         audio, sr = torchaudio.load(audio_filename)
@@ -142,13 +143,17 @@ if __name__ == "__main__":
                 "Processing file": f"{name}{ext}",
                 "Failures": len(failures)
             })
-            # try:
-            video_f, audio_f = fe.extract(os.path.join(VIDEOS_DIR, f), to_numpy=True)
-            
-            np.save(os.path.join(VIDEO_FEATURES_DIR, name), video_f)
-            np.save(os.path.join(AUDIO_FEATURES_DIR, name), audio_f)
+            video_features_name = os.path.join(VIDEO_FEATURES_DIR, name)
+            audio_features_name = os.path.join(AUDIO_FEATURES_DIR, name)
 
-            # except:
-            #     failures.append(f"{name}{ext}")
+            if not os.path.isfile(video_features_name) or not os.path.isfile(audio_features_name):
+                # try:
+                video_f, audio_f = fe.extract(os.path.join(VIDEOS_DIR, f), to_numpy=True)
+                
+                np.save(video_features_name, video_f)
+                np.save(audio_features_name, audio_f)
+
+                # except:
+                #     failures.append(f"{name}{ext}")
 
     print(failures)

@@ -106,7 +106,15 @@ class AVCaptioning(nn.Module):
     def predict(self, audio_features, visual_features, max_caption_len=30, beam_alpha=0, beam_width=5):
         features = torch.cat([audio_features, visual_features], dim=-1)
 
-        outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
-        # outputs, _ = self.decoder.decode(features, captions, max_caption_len=max_caption_len)
+        #
+        # NOTE: Beam serch gives trash results for some reason we don't know.
+        # We can investigate why in the future...
+        #
+        # outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
+        
+        outputs, _ = self.decoder.decode(features, captions=None, max_caption_len=max_caption_len)
+        # outputs > [max_caption_len, batch_size, vocab_size]
+        outputs = outputs.argmax(2).transpose(1,0) 
+        # outputs > [batch_size, max_caption_len]
         captions = [self.vocab.decode_indexes(o[1:]) for o in outputs]
         return captions
