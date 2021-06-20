@@ -11,25 +11,25 @@ from .reconstructor import GlobalReconstructor, LocalReconstructor
 
 DECODER_CONFIG = {
     "rnn_type": "LSTM",  # ['LSTM', 'GRU']
-    "rnn_num_layers": 2,
+    "rnn_num_layers": 1,
     "rnn_bidirectional": False,  # Bool
     "rnn_hidden_size": 512,
-    "rnn_dropout": 0.0,#0.5,
+    "rnn_dropout": 0.0,  # 0.5,
     "in_feature_size": 2048 + 128,
-    "embedding_size": 300, #300, #128, # Orignial RecNet implementation sets embedding size to 468, why??
-    "attn_size": 256,#128,
+    "embedding_size": 300,  # 300, #128, # Orignial RecNet implementation sets embedding size to 468, why??
+    "attn_size": 256,  # 128,
     "output_size": 3201,  # Vocab Size
 }
 
 RECONSTRUCTOR_CONFIG = {
     "type": "global",  # ['none', 'global', 'local']
     "rnn_type": "LSTM",  # ['LSTM', 'GRU']
-    "rnn_num_layers": 2,
+    "rnn_num_layers": 1,
     "rnn_bidirectional": False,  # Bool
     "hidden_size": 2048 + 128,  # feature_size
     "rnn_dropout": 0.5,
-    "decoder_size": 512,#128,  # decoder_hidden_size
-    "attn_size": 256,#128,  # only applied for local
+    "decoder_size": 512,  # 128,  # decoder_hidden_size
+    "attn_size": 256,  # 128,  # only applied for local
 }
 
 
@@ -40,11 +40,14 @@ class AVCaptioning(nn.Module):
         teacher_forcing_ratio=0.0,
         reconstructor_type="none",
         device="cpu",
+        normalize_inputs=False,
     ):
         super(AVCaptioning, self).__init__()
         self.vocab = vocab
         self.vocab_size = len(vocab)
         self.teacher_forcing_ratio = teacher_forcing_ratio
+
+        self.normalize_inputs = normalize_inputs
 
         config = DECODER_CONFIG.copy()
         config["output_size"] = self.vocab_size
@@ -69,7 +72,7 @@ class AVCaptioning(nn.Module):
         else:
             self.reconstructor = None
 
-        self.reconstructor_type = reconstructor_type #rec_config["type"]
+        self.reconstructor_type = reconstructor_type  # rec_config["type"]
 
         ## Message
         print("Initializing Model...")
@@ -85,10 +88,13 @@ class AVCaptioning(nn.Module):
         )
         print("Reconstuctor :", rec_config["type"])
 
-    def forward(self, audio_features, visual_features, captions):
+    def forward(self, audio_features, visual_features, captions, teacher_forcing_ratio=None):
         features = torch.cat([audio_features, visual_features], dim=-1)
         outputs, rnn_hiddens = self.decoder.decode(
-            features, captions, max_caption_len=captions.shape[0], teacher_forcing_ratio=self.teacher_forcing_ratio
+            features,
+            captions,
+            max_caption_len=captions.shape[0],
+            teacher_forcing_ratio=teacher_forcing_ratio if teacher_forcing_ratio is not None else self.teacher_forcing_ratio,
         )
 
         if self.reconstructor is None:
@@ -103,18 +109,17 @@ class AVCaptioning(nn.Module):
         return outputs, audio_recons, visual_recons
         # return outputs, features_recons
 
-    def predict(self, audio_features, visual_features, max_caption_len=30, beam_alpha=0, beam_width=5):
+    def predict(self, audio_features, visual_features, max_caption_len=30, mode="direct", beam_alpha=0, beam_width=5):
         features = torch.cat([audio_features, visual_features], dim=-1)
 
-        #
-        # NOTE: Beam serch gives trash results for some reason we don't know.
-        # We can investigate why in the future...
-        #
-        # outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
-        
-        outputs, _ = self.decoder.decode(features, captions=None, max_caption_len=max_caption_len)
-        # outputs > [max_caption_len, batch_size, vocab_size]
-        outputs = outputs.argmax(2).transpose(1,0) 
-        # outputs > [batch_size, max_caption_len]
+        if mode == "beam":
+            outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
+
+        if mode == "direct":
+            outputs, _ = self.decoder.decode(features, captions=None, max_caption_len=max_caption_len)
+            # outputs > [max_caption_len, batch_size, vocab_size]
+            outputs = outputs.argmax(2).transpose(1, 0)
+            # outputs > [batch_size, max_caption_len]
+
         captions = [self.vocab.decode_indexes(o[1:]) for o in outputs]
         return captions

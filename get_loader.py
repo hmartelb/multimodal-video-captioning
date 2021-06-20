@@ -109,7 +109,9 @@ class MSVD_Dataset(Dataset):
         transform=None,
         freq_threshold=5,
         vocab_pkl=None,
+        normalize = False,
     ):
+        self.normalize = normalize
         self.root_dir = root_dir
 
         assert os.path.isdir(root_dir), "The dataset root directory does not exist"
@@ -159,6 +161,9 @@ class MSVD_Dataset(Dataset):
             
         print("After integrity check:", len(self.metadata))
 
+        self.metadata = self.metadata[(self.metadata['Source'] == 'clean')]
+
+        print("After removing unverified:", len(self.metadata))
 
         # Initialize vocabulary and build vocab
         if vocab_pkl is None:
@@ -202,8 +207,11 @@ class MSVD_Dataset(Dataset):
             audio_features = audio_features[0:n_frames, :]
 
             # Frame-wise normalization
-            # video_features /= np.sum(video_features, axis=1, keepdims=True)
-            # audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+            if self.normalize:
+                video_features /= np.sum(video_features, axis=1, keepdims=True)
+                audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+
+            # [n_seconds, n_feats] -> sum(n_feats) and divide 
 
             self.features[name] = {
                 'audio': torch.tensor(audio_features),
@@ -222,10 +230,12 @@ class VideoCaptionsDataset(Dataset):
         self,
         root_dir,
         vid_cap_dict,
+        normalize = False,
     ):
         """
         vid_cap_dict: dict({ vid: [captions] })
         """
+        self.normalize = normalize
         self.root_dir = root_dir
         self.vid_cap_dict = vid_cap_dict
         self.video_ids = list(vid_cap_dict.keys())
@@ -254,8 +264,9 @@ class VideoCaptionsDataset(Dataset):
         audio_features = audio_features[0:n_frames, :]
 
         # Frame-wise normalization
-        # video_features /= np.sum(video_features, axis=1, keepdims=True)
-        # audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+        if self.normalize:
+            video_features /= np.sum(video_features, axis=1, keepdims=True)
+            audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
         # features = np.concatenate([video_features, audio_features], axis=1)
         captions = self.vid_cap_dict[video_id_full]
@@ -287,7 +298,7 @@ class VideoCaptionsCollect:
         return video_ids, audio_features, visual_features, captions
 
 
-def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0):
+def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0, normalize=False):
 
     full_video_id = lambda x: f"{x['VideoID']}_{x['Start']}_{x['End']}"
     df = pd.DataFrame()
@@ -295,7 +306,7 @@ def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers
     df["Caption"] = videodataset.metadata["Description"].apply(videodataset.vocab.apply_vocab)
     vid_captions_dict = df[["FullVideoID", "Caption"]].groupby("FullVideoID")["Caption"].apply(list).to_dict()
 
-    videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict)
+    videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict, normalize=normalize)
 
     loader = DataLoader(
         dataset=videoCaptionsDataset,
@@ -362,8 +373,9 @@ def get_loader(
     shuffle=True,
     pin_memory=True,
     vocab_pkl=None,
+    normalize=False,
 ):
-    dataset = MSVD_Dataset(root_dir, split=split, vocab_pkl=vocab_pkl)
+    dataset = MSVD_Dataset(root_dir, split=split, vocab_pkl=vocab_pkl, normalize=normalize)
     pad_idx = dataset.vocab.stoi["<PAD>"]
 
     loader = DataLoader(
