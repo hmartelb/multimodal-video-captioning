@@ -127,7 +127,38 @@ class MSVD_Dataset(Dataset):
         if vocab_pkl is not None:
             assert os.path.isfile(vocab_pkl), f"The vocab file cannot be found {vocab_pkl}"
 
+        def read_video_filename(video_name):
+            filename = video_name.split(".")[0]
+            parts = filename.split("_")
+            video_id = '_'.join(parts[:-2])
+            start = parts[-2]
+            end = parts[-1]
+            start, end = int(start), int(end)
+            return video_id, start, end
+
+        multimodal_video_ids = set([])
+        for f in os.listdir(os.path.join(self.root_dir, "features", "video")):
+            _, ext = os.path.splitext(f)
+            video_id, start, end = read_video_filename(f)
+
+            video_filename = os.path.join(self.root_dir, "features", "video", f)
+            # audio_filename = os.path.join(self.root_dir, "features", "audio", f.replace(ext, '.wav'))
+
+            if os.path.isfile(video_filename):# and os.path.isfile(audio_filename):
+                multimodal_video_ids.add(f"{video_id}_{start}_{end}")
+
         self.metadata = pd.read_csv(self.captions_file)
+        print("Before integrity check:", len(self.metadata))
+
+        to_drop = []
+        for i, row in self.metadata.iterrows():
+            if f"{row['VideoID']}_{row['Start']}_{row['End']}" not in multimodal_video_ids:
+                to_drop.append(i)
+        
+        self.metadata = self.metadata.drop(index=to_drop)
+            
+        print("After integrity check:", len(self.metadata))
+
 
         # Initialize vocabulary and build vocab
         if vocab_pkl is None:
