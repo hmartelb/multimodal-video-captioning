@@ -169,38 +169,49 @@ class MSVD_Dataset(Dataset):
             print(f"Loading Vocab: {vocab_pkl} ")
             self.vocab = Vocabulary.load(vocab_pkl)
 
+        self.features = {}
+
     def __len__(self):
         return len(self.metadata)
 
     def __getitem__(self, index):
         row = self.metadata.iloc[index]
         video_id, start, end, caption = row["VideoID"], row["Start"], row["End"], row["Description"]
-        caption_tokens = [self.vocab.stoi["<SOS>"]]
-        caption_tokens += self.vocab.numericalize(caption)
-        caption_tokens.append(self.vocab.stoi["<EOS>"])
+    
+        name = f"{video_id}_{start}_{end}"
+        if name not in self.features:
+            caption_tokens = [self.vocab.stoi["<SOS>"]]
+            caption_tokens += self.vocab.numericalize(caption)
+            caption_tokens.append(self.vocab.stoi["<EOS>"])
 
-        video_features_file = os.path.join(self.root_dir, "features", "video", f"{video_id}_{start}_{end}.npy")
-        audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{video_id}_{start}_{end}.npy")
+            video_features_file = os.path.join(self.root_dir, "features", "video", f"{name}.npy")
+            audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{name}.npy")
 
-        video_features = np.load(video_features_file)
-        audio_features = np.load(audio_features_file)
+            video_features = np.load(video_features_file)
+            audio_features = np.load(audio_features_file)
 
-        # quick fix,there are some feature in shape (128,) when number of frame is 1
-        # e.g. 'rOic25PnIx8_1_3'
-        if len(audio_features.shape) < 2:
-            audio_features = audio_features.reshape((-1, 128))
+            # quick fix,there are some feature in shape (128,) when number of frame is 1
+            # e.g. 'rOic25PnIx8_1_3'
+            if len(audio_features.shape) < 2:
+                audio_features = audio_features.reshape((-1, 128))
 
-        # Make both features to have the same frames (drop largest)
-        n_frames = min(video_features.shape[0], audio_features.shape[0])
+            # Make both features to have the same frames (drop largest)
+            n_frames = min(video_features.shape[0], audio_features.shape[0])
 
-        video_features = video_features[0:n_frames, :]
-        audio_features = audio_features[0:n_frames, :]
+            video_features = video_features[0:n_frames, :]
+            audio_features = audio_features[0:n_frames, :]
 
-        # Frame-wise normalization
-        # video_features /= np.sum(video_features, axis=1, keepdims=True)
-        # audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+            # Frame-wise normalization
+            # video_features /= np.sum(video_features, axis=1, keepdims=True)
+            # audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
-        return torch.tensor(audio_features), torch.tensor(video_features), torch.tensor(caption_tokens)
+            self.features[name] = {
+                'audio': torch.tensor(audio_features),
+                'video': torch.tensor(video_features), 
+                'captions': torch.tensor(caption_tokens)
+            }
+
+        return self.features[name]['audio'], self.features[name]['video'], self.features[name]['captions']
 
         # features = np.concatenate([video_features, audio_features], axis=1)
         # return torch.tensor(features), torch.tensor(caption_tokens)
