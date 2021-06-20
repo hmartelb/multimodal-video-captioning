@@ -16,6 +16,30 @@ def read_video_filename(video_name):
     start, end = int(start), int(end)
     return video_id, start, end
 
+def youtube_download(audio_path_full, video_id):
+    ydl_opts = {
+        "outtmpl": audio_path_full,
+        "format": "bestaudio/best",
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "wav",
+                # "preferredquality": "192",
+            }
+        ],
+    }
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+
+def trim(audio_path_full, video_id, chucks, AUDIOS_FOLDER):
+    song = AudioSegment.from_file(audio_path_full)
+    # Trim the audio from start to end (in AudioSegment 1 second = 1000 samples)
+
+    for chunk in chucks:
+        start, end = chunk
+        song_trim = song[1000*start:1000*end]
+        audio_path_trim = os.path.join(AUDIOS_FOLDER, f"{video_id}_{start}_{end}.wav")
+        song_trim.export(audio_path_trim, format="wav")
 
 
 if __name__ == '__main__':
@@ -29,7 +53,7 @@ if __name__ == '__main__':
 
     
     ## get video list
-    video_list = np.loadtxt('video_list.txt', dtype=str) # > ls [videos folder]/*.ave > video_list.txt
+    video_list = np.loadtxt('./datasets/MSVD/video_list.txt', dtype=str) # > ls [videos folder]/*.ave > video_list.txt
     # video_list = os.listdir(VIDEOS_FOLDER)
 
     ## Some video_id are repeated
@@ -44,42 +68,31 @@ if __name__ == '__main__':
             vid_time_dict[vid].append([start,end])
     print("Total Video:", len(vid_time_dict))
 
-    failures_vid = []
-    
+    failures_youtube = []    
+    failures_trim = []    
     with tqdm(sorted(vid_time_dict.keys())) as progress:
         for video_id in progress:
-            progress.set_postfix({"Processing file": f"{video_id}", "Failures": len(failures_vid)})
+            progress.set_postfix({"Processing file": f"{video_id}", "Failures": len(failures_youtube)})
 
             audio_path_full = os.path.join(AUDIOS_FULL_FOLDER, f"{video_id}.wav")
             if not os.path.isfile(audio_path_full):
                 try:
-                    ydl_opts = {
-                        "outtmpl": audio_path_full,
-                        "format": "bestaudio/best",
-                        "postprocessors": [
-                            {
-                                "key": "FFmpegExtractAudio",
-                                "preferredcodec": "wav",
-                                # "preferredquality": "192",
-                            }
-                        ],
-                    }
-                    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
-                    
+                    youtube_download(audio_path_full, video_id)
+                except Exception as e:
+                    failures_youtube.append([video_id, str(e)])
 
-                    # Trim the audio from start to end (in AudioSegment 1 second = 1000 samples)
-                    song = AudioSegment.from_file(audio_path_full)
+                # try:
+                #     chunks = vid_time_dict[video_id]
+                #     trim(audio_path_full, video_id, chucks, AUDIOS_FOLDER)
+                # except:
+                #     failures_trim.append(video_id)
 
-                    for chunk in vid_time_dict[vid]:
-                        start, end = chunk
-                        song_trim = song[1000*start:1000*end]
-                        audio_path_trim = os.path.join(AUDIOS_FOLDER, f"{video_id}_{start}_{end}.wav")
-                        song_trim.export(audio_path_trim, format="wav")
 
-                except:
-                    failures_vid.append(video_name)
-
-    print(f"Finished with {len(failures_vid)} failues.")
-    error_txt = os.path.join(AUDIOS_FULL_FOLDER, "error.txt")
-    np.savetxt(error_txt, np.array(failures_vid, dtype=str))
+    print(f"Finished with {len(failures_youtube)} youtube failues, {len(failures_trim)} trim failues.")
+    error_youtube = os.path.join("datasets", "MSVD", "error_youtube.txt")
+    error_trim = os.path.join("datasets", "MSVD", "error_trim.txt")
+    with open(error_youtube, 'w+') as f:
+        lines = [','.join(l) for l in failures_youtube]
+        f.write("\n".join(lines))
+    with open(error_trim, 'w+') as f:
+        f.write("\n".join(failures_trim))
