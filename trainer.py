@@ -20,6 +20,7 @@ from get_loader import Vocabulary, get_loader, VideoDataset_to_VideoCaptionsLoad
 from losses import ReconstructionLossBuilder, TotalReconstructionLoss, NLPScore
 from models import AVCaptioning
 
+from tensorboardX import SummaryWriter
 import gc
 
 DEBUG = False  ## FIXME: Set to False before training
@@ -44,11 +45,13 @@ class TrainerConfig:
 
 
 class Trainer:
-    def __init__(self, checkpoint_name, display_freq=10, eval_freq=10):
+    def __init__(self, checkpoint_name, log_path='logs', display_freq=10, eval_freq=10):
         # assert checkpoint_name.endswith(".tar"), "The checkpoint file must have .tar extension"
         self.checkpoint_name = checkpoint_name
         self.display_freq = display_freq
         self.eval_freq = eval_freq
+
+        self.summary_writer = SummaryWriter(log_path)
 
     def _load_checkpoint(self, model):
         if os.path.isfile(self.checkpoint_name):
@@ -128,15 +131,15 @@ class Trainer:
         for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
             print(f"\nEpoch {epoch}/{train_config.epochs}:")
 
-            train_loss = self.train(model, train_loader)
-            val_loss = self.test(model, val_loader)
+            train_loss = self.train(model, train_loader, epoch)
+            val_loss = self.test(model, val_loader, 'val', epoch)
 
             self.history["train_loss"].append(train_loss)
             self.history["val_loss"].append(val_loss)
             
             if epoch % self.eval_freq == 0 or epoch == train_config.epochs:
-                train_score = self.eval(model, train_vidCap_loader)
-                val_score = self.eval(model, val_vidCap_loader)
+                train_score = self.eval(model, train_vidCap_loader, 'train', epoch)
+                val_score = self.eval(model, val_vidCap_loader, 'val', epoch)
                 self.history["train_score"].append(train_score)
                 self.history["val_score"].append(val_score)
 
@@ -158,15 +161,15 @@ class Trainer:
         model = self._load_checkpoint(model)
         model = model.to(self.device)
 
-        test_loss = self.test(model, test_loader)
-        test_score = self.eval(model, test_vidCap_loader)
+        test_loss = self.test(model, test_loader, 'test', epoch)
+        test_score = self.eval(model, test_vidCap_loader, 'test', epoch)
 
         self.history["test_loss"].append(test_loss)
         self.history["test_score"].append(test_score)
 
         return self.history
 
-    def train(self, model, dataloader):
+    def train(self, model, dataloader, epoch):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -203,6 +206,13 @@ class Trainer:
                 )
                 loss.mean().backward()
 
+                step_no = epoch * len(dataloader) + i
+                self.summary_writer.add_scalar('train/loss', loss.mean().item(), step_no)
+                self.summary_writer.add_scalar('train/loss/ce', ce.mean().item(), step_no)
+                self.summary_writer.add_scalar('train/loss/e', e.mean().item(), step_no)
+                self.summary_writer.add_scalar('train/loss/a_recon', a_recon.mean().item(), step_no)
+                self.summary_writer.add_scalar('train/loss/v_recon', v_recon.mean().item(), step_no)
+
                 if self.gradient_clip_value > 0:
                     torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=self.gradient_clip_value)
 
@@ -228,6 +238,12 @@ class Trainer:
         # Garbage collector (fix memory allocation problems ? )
         gc.collect()
 
+        self.summary_writer.add_scalar('train_epoch/loss', total_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('train_epoch/loss/ce', cross_entropy_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('train_epoch/loss/e',  entropy_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('train_epoch/loss/a_recon', audio_reconstruction_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('train_epoch/loss/v_recon', visual_reconstruction_loss / len(dataloader), epoch)
+
         return {
             "total": total_loss / len(dataloader),
             "ce": cross_entropy_loss / len(dataloader),
@@ -236,7 +252,7 @@ class Trainer:
             "v_recon": visual_reconstruction_loss / len(dataloader),
         }
 
-    def test(self, model, dataloader):
+    def test(self, model, dataloader, training_phase, epoch):
         total_loss = 0.0
         cross_entropy_loss = 0.0
         entropy_loss = 0.0
@@ -263,6 +279,14 @@ class Trainer:
                         visual_features,  # Visual features [0-1000]
                         visual_recons,
                     )
+
+                    step_no = epoch * len(dataloader) + i
+                    self.summary_writer.add_scalar(f'{training_phase}/loss', loss.mean().item(), step_no)
+                    self.summary_writer.add_scalar(f'{training_phase}/loss/ce', ce.mean().item(), step_no)
+                    self.summary_writer.add_scalar(f'{training_phase}/loss/e', e.mean().item(), step_no)
+                    self.summary_writer.add_scalar(f'{training_phase}/loss/a_recon', a_recon.mean().item(), step_no)
+                    self.summary_writer.add_scalar(f'{training_phase}/loss/v_recon', v_recon.mean().item(), step_no)
+
                     total_loss += loss.mean().item()
                     cross_entropy_loss += ce.mean().item()
                     entropy_loss += e.mean().item()
@@ -283,6 +307,12 @@ class Trainer:
         # Garbage collector (fix memory allocation problems ? )
         gc.collect()
 
+        self.summary_writer.add_scalar('test_epoch/loss', total_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('test_epoch/loss/ce', cross_entropy_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('test_epoch/loss/e',  entropy_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('test_epoch/loss/a_recon', audio_reconstruction_loss / len(dataloader), epoch)
+        self.summary_writer.add_scalar('test_epoch/loss/v_recon', visual_reconstruction_loss / len(dataloader), epoch)
+
         return {
             "total": total_loss / len(dataloader),
             "ce": cross_entropy_loss / len(dataloader),
@@ -291,7 +321,7 @@ class Trainer:
             "v_recon": visual_reconstruction_loss / len(dataloader),
         }
 
-    def eval(self, model, videoCaptions_dataloader):
+    def eval(self, model, videoCaptions_dataloader, training_phase, epoch):
         model.eval()
         vid_GT = {}
         vid_gen = {}
@@ -313,6 +343,12 @@ class Trainer:
             print()
 
         scores = NLPScore(vid_GT, vid_gen)
+        self.summary_writer.add_scalar(f'{training_phase}/score/Bleu_1', scores['Bleu_1'], epoch)
+        self.summary_writer.add_scalar(f'{training_phase}/score/Bleu_2', scores['Bleu_2'], epoch)
+        self.summary_writer.add_scalar(f'{training_phase}/score/Bleu_3', scores['Bleu_3'], epoch)
+        self.summary_writer.add_scalar(f'{training_phase}/score/Bleu_4', scores['Bleu_4'], epoch)
+        self.summary_writer.add_scalar(f'{training_phase}/score/ROUGE_L', scores['ROUGE_L'], epoch)
+        self.summary_writer.add_scalar(f'{training_phase}/score/CIDEr', scores['CIDEr'], epoch)
         print(scores)
         return scores
 
@@ -347,7 +383,7 @@ if __name__ == "__main__":
         # },
         {
             "model": {"teacher_forcing_ratio": 0, "reconstructor_type": "none"},
-            "training": {"batch_size": 1, "epochs": 30, "lr": 1e-4},
+            "training": {"batch_size": 128, "epochs": 30, "lr": 1e-4},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
             "checkpoint_name": "SA-LSTM_50_epochs_base",
         },
