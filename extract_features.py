@@ -125,6 +125,7 @@ if __name__ == "__main__":
 
     DATASET_DIR = args.dataset
     VIDEOS_DIR = os.path.join(DATASET_DIR, "videos")
+    AUDIOS_DIR = os.path.join(DATASET_DIR, "audios")
 
     FEATURES_DIR = os.path.join(DATASET_DIR, "features")
     VIDEO_FEATURES_DIR = os.path.join(FEATURES_DIR, "video")
@@ -143,10 +144,16 @@ if __name__ == "__main__":
                 "Processing file": f"{name}{ext}",
                 "Failures": len(failures)
             })
+            video_name = os.path.join(VIDEOS_DIR, f)
+            audio_name = os.path.join(AUDIOS_DIR, f.replace(ext, '.wav'))
+
             video_features_name = os.path.join(VIDEO_FEATURES_DIR, name)
             audio_features_name = os.path.join(AUDIO_FEATURES_DIR, name)
 
-            if not os.path.isfile(video_features_name) or not os.path.isfile(audio_features_name):
+            data_exists = (os.path.isfile(video_name) and os.path.isfile(audio_name))
+            features_exist = (os.path.isfile(video_features_name) and os.path.isfile(audio_features_name))
+
+            if data_exists and not features_exist:
                 # try:
                 video_f, audio_f = fe.extract(os.path.join(VIDEOS_DIR, f), to_numpy=True)
                 
