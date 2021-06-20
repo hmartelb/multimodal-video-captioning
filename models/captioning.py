@@ -11,12 +11,12 @@ from .reconstructor import GlobalReconstructor, LocalReconstructor
 
 DECODER_CONFIG = {
     "rnn_type": "LSTM",  # ['LSTM', 'GRU']
-    "rnn_num_layers": 1,
+    "rnn_num_layers": 2,
     "rnn_bidirectional": False,  # Bool
     "rnn_hidden_size": 512,
-    "rnn_dropout": 0.5,
+    "rnn_dropout": 0.0,#0.5,
     "in_feature_size": 2048 + 128,
-    "embedding_size": 468, #300, #128, # Orignial RecNet implementation sets embedding size to 468, why??
+    "embedding_size": 300, #300, #128, # Orignial RecNet implementation sets embedding size to 468, why??
     "attn_size": 256,#128,
     "output_size": 3201,  # Vocab Size
 }
@@ -24,7 +24,7 @@ DECODER_CONFIG = {
 RECONSTRUCTOR_CONFIG = {
     "type": "global",  # ['none', 'global', 'local']
     "rnn_type": "LSTM",  # ['LSTM', 'GRU']
-    "rnn_num_layers": 1,
+    "rnn_num_layers": 2,
     "rnn_bidirectional": False,  # Bool
     "hidden_size": 2048 + 128,  # feature_size
     "rnn_dropout": 0.5,

@@ -97,6 +97,7 @@ class Trainer:
             factor=train_config.lr_decay_gamma,
             patience=train_config.lr_decay_patience,
             verbose=True,
+            min_lr=1e-7,
         )
         self.gradient_clip_value = train_config.gradient_clip_value
 
@@ -340,13 +341,13 @@ if __name__ == "__main__":
         # # NO reconstructor
         # {
         #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-        #     "training": {"batch_size": 64, "epochs": 30, "lr": 5e-5},
+        #     "training": {"batch_size": 128, "epochs": 30, "lr": 5e-4},
         #     "loss": {"reg_lambda": 0.001, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
         #     "checkpoint_name": "SA-LSTM_50_epochs_reg_1e-3",
         # },
         {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 30, "lr": 5e-4},
+            "model": {"teacher_forcing_ratio": 0, "reconstructor_type": "none"},
+            "training": {"batch_size": 1, "epochs": 30, "lr": 1e-4},
             "loss": {"reg_lambda": 0, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
             "checkpoint_name": "SA-LSTM_50_epochs_base",
         },
