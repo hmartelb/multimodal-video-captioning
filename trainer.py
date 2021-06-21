@@ -118,9 +118,9 @@ class Trainer:
         model.to(self.device)
 
         ## VideoCaptionsDataloader for Evaluation
-        train_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(train_loader.dataset, train_config.batch_size)
-        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, train_config.batch_size)
-        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, train_config.batch_size)
+        train_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(train_loader.dataset, train_config.batch_size, video_only=train_loader.dataset.video_only)
+        val_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(val_loader.dataset, train_config.batch_size, video_only=val_loader.dataset.video_only)
+        test_vidCap_loader = VideoDataset_to_VideoCaptionsLoader(test_loader.dataset, train_config.batch_size, video_only=test_loader.dataset.video_only)
 
         # Start training
         for epoch in range(self.previous_epochs + 1, train_config.epochs + 1):
@@ -361,7 +361,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', default='-1')
     parser.add_argument('--dataset', default="MSVD", choices=['MSVD', 'MSR-VTT'])
+
+    parser.add_argument('--epochs', default=50, type=int)
+    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--lr', default=1e-4, type=float)
+
     args = parser.parse_args()
+
+    # NOTE: This may be necessary (Windows)
+    torch.set_num_threads(1)
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -375,104 +383,98 @@ if __name__ == "__main__":
 
     CHECKPOINTS_DIR = os.path.join("checkpoints", dataset)
 
-    experiments = [
+    v_v_global_local_exp = [
         # NO reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_forcing_1",
-            "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_forcing_1'),
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_only'),
+            "video_only": True,
         },
-        # # LOCAL reconstructors (video only)
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.1}, 
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_local_0.1",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_local_0.1'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5}, 
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_local_0.5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_local_0.5'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 1}, 
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_local_1",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_local_1'),
-        # },
-        # # GLOBAL reconstructors (video only)
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4}, 
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.1},
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_global_0.1",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_global_0.1'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_global_0.5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_global_0.5'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 1},
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_global_1",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_global_1'),
-        # },
-        # # LOCAL reconstructors (video + audio)
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.1}, 
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_local_0.1_5e-5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_audio_local_0.1_5e-5'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5}, 
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_local_0.5_5e-5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_audio_local_0.5_5e-5'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 1}, 
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_local_1_5e-5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_audio_local_1_5e-5'),
-        # },
-        # # GLOBAL reconstructors (video + audio)
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4}, 
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.1},
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.1_5e-5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.1_5e-5'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.5_5e-5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.5_5e-5'),
-        # },
-        # {
-        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
-        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 1},
-        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_global_1_5e-5",
-        #     "log_dir": os.path.join('logs', dataset, 'SA-LSTM_50_epochs_reg_5e-4_video_audio_global_1_5e-5'),
-        # },
+        # Local reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only_local_0.5'",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_only_local_0.5'),
+            "video_only": True,
+        },
+        # Global reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only_global_0.5'",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_only_global_0.5'),
+            "video_only": True,
+        },
     ]
+
+    av_v_global_local_exp = [
+        # NO reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_none_0.5_5e-5",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_none_0.5_5e-5'),
+        },
+        # Local reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_local_0.5_5e-5",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_local_0.5_5e-5'),
+        },
+        # Global reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_global_0.5_5e-5",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_global_0.5_5e-5'),
+        },
+    ]
+
+    av_av_global_local_exp = [
+        # NO reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_audio_none_0.5_5e-5",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_audio_none_0.5_5e-5'),
+        },
+        # Local reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_audio_local_0.5_5e-5",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_audio_local_0.5_5e-5'),
+        },
+        # Global reconstructor
+        {
+            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
+            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_audio_global_0.5_5e-5",
+            "log_dir": os.path.join('logs', dataset, f'SA-LSTM_{args.epochs}_epochs_video_audio_global_0.5_5e-5'),
+        },
+    ]
+
+  
+
+    if args.gpu == '0':
+        experiments = v_v_global_local_exp
+    if args.gpu == '1':
+        experiments = av_av_global_local_exp
+    if args.gpu == '2':
+        experiments = av_v_global_local_exp
 
     for exp in experiments:
 
@@ -494,6 +496,7 @@ if __name__ == "__main__":
             split="train",
             batch_size=train_config.batch_size,
             vocab_pkl=vocab_pkl,
+            video_only=exp['video_only'] if 'video_only' in exp else False,
         )
         val_loader, _ = get_loader(
             root_dir=dataset_folder,
@@ -501,13 +504,15 @@ if __name__ == "__main__":
             split="val",
             batch_size=train_config.batch_size,
             vocab_pkl=vocab_pkl,
+            video_only=exp['video_only'] if 'video_only' in exp else False,
         )
         test_loader, _ = get_loader(
             root_dir=dataset_folder,
             dataset=dataset,
-            split="val" if dataset == 'MSR-VTT' else "test",
+            split="test",
             batch_size=train_config.batch_size,
             vocab_pkl=vocab_pkl,
+            video_only=exp['video_only'] if 'video_only' in exp else False,
         )
 
         model = AVCaptioning(
