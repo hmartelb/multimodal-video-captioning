@@ -9,6 +9,7 @@ from PIL import Image  # Load img
 from torch.nn.utils.rnn import pad_sequence  # pad batch
 from torch.utils.data import DataLoader, Dataset
 import pickle
+import json
 
 # We want to convert text -> numerical values
 # 1. We need a Vocabulary mapping each word to a index
@@ -19,7 +20,6 @@ import pickle
 
 # Download with: python -m spacy download en
 spacy_eng = spacy.load("en_core_web_sm")
-
 
 class Vocabulary:
     def __init__(self, freq_threshold):
@@ -89,6 +89,18 @@ class Vocabulary:
         sentence = " ".join(words)
         return sentence
 
+def build_MSR_VTT_vocab():
+    dataset_folder = os.path.join("datasets", "MSR-VTT")
+    json_path = os.path.join(dataset_folder, "metadata", "train_val_videodatainfo.json")
+    vocab_path = os.path.join(dataset_folder, "metadata", "vocab.pkl")
+
+    data = json.load(open(json_path, 'r'))
+    metadata = pd.DataFrame(data['sentences'])
+    metadata['id'] = metadata.video_id.apply(lambda x: int(x.replace('video','')))
+    # train: 0-6512, Val: 6513-7009
+    sentences = metadata[(metadata.id >= 0) & (metadata.id < 7009)]['caption'].tolist()
+
+    Vocabulary.prebuild(sentences, vocab_path)
 
 def build_MSVD_vocab():
     dataset_folder = os.path.join("datasets", "MSVD")
@@ -101,10 +113,80 @@ def build_MSVD_vocab():
     Vocabulary.prebuild(train_captions + val_captions, vocab_path)
 
 
+def read_MSVD_Metadata(root_dir, split):
+    '''
+    return pandas data frame in format [video_id, caption]
+    '''
+
+    captions_file = os.path.join(root_dir, "metadata", f"{split}.csv")
+    assert os.path.isfile(captions_file), f"The captions file cannot be found {captions_file}"
+
+    def read_video_filename(video_name):
+        filename = video_name.split(".")[0]
+        parts = filename.split("_")
+        video_id = '_'.join(parts[:-2])
+        start = parts[-2]
+        end = parts[-1]
+        start, end = int(start), int(end)
+        return video_id, start, end
+
+    multimodal_video_ids = set([])
+    for f in os.listdir(os.path.join(root_dir, "features", "video")):
+        _, ext = os.path.splitext(f)
+        video_id, start, end = read_video_filename(f)
+
+        video_filename = os.path.join(root_dir, "features", "video", f)
+        # audio_filename = os.path.join(root_dir, "features", "audio", f.replace(ext, '.wav'))
+
+        if os.path.isfile(video_filename):# and os.path.isfile(audio_filename):
+            multimodal_video_ids.add(f"{video_id}_{start}_{end}")
+
+    metadata = pd.read_csv(captions_file)
+    print("Before integrity check:", len(metadata))
+
+    to_drop = []
+    for i, row in metadata.iterrows():
+        if f"{row['VideoID']}_{row['Start']}_{row['End']}" not in multimodal_video_ids:
+            to_drop.append(i)
+    
+    metadata = metadata.drop(index=to_drop)
+        
+    print("After integrity check:", len(metadata))
+
+    metadata = metadata[(metadata['Source'] == 'clean')]
+
+    print("After removing unverified:", len(metadata))
+  
+    metadata["video_id"] = metadata.apply(lambda x: f"{x['VideoID']}_{x['Start']}_{x['End']}", axis=1)
+    metadata = metadata.rename(columns={"Description": "caption"})
+
+    return metadata[["video_id", "caption"]]
+
+def read_MSR_VTT_Metadata(root_dir, split):
+    json_path = os.path.join(root_dir, "metadata", "train_val_videodatainfo.json")
+
+    assert os.path.isfile(json_path), f"The captions file cannot be found {json_path}"
+
+    data = json.load(open(json_path, 'r'))
+    metadata = pd.DataFrame(data['sentences'])
+    metadata['id'] = metadata.video_id.apply(lambda x: int(x.replace('video','')))
+    start_end = {
+        "train": [0, 6512], # (6513)
+        "val": [6513, 7009], # (497)
+        "test": [7010, 9999] # (2990)
+    }
+    start, end = start_end[split]
+    metadata[(metadata.id >= start) & (metadata.id < end)][['video_id', 'caption']]
+
+    print(f"Total Data Count (MSR-VTT-{split}):", len(metadata))
+    return metadata
+
+
 class MSVD_Dataset(Dataset):
     def __init__(
         self,
         root_dir,
+        dataset="MSVD",
         split="train",
         transform=None,
         freq_threshold=5,
@@ -117,59 +199,27 @@ class MSVD_Dataset(Dataset):
         assert os.path.isdir(root_dir), "The dataset root directory does not exist"
         assert os.path.isdir(os.path.join(root_dir, "metadata")), "The dataset metadata directory does not exist"
         assert os.path.isdir(os.path.join(root_dir, "features")), "The dataset features directory does not exist"
+        assert dataset in ["MSVD", "MSR-VTT"], "Dataset must be one of ['MSVS', 'MSR-VTT']"
         assert split in [
             "train",
             "val",
             "test",
             "tiny",
         ], "Wrong split specified, must be one of ['train', 'val', 'test']"
-
-        self.captions_file = os.path.join(root_dir, "metadata", f"{split}.csv")
-        assert os.path.isfile(self.captions_file), f"The captions file cannot be found {self.captions_file}"
         if vocab_pkl is not None:
             assert os.path.isfile(vocab_pkl), f"The vocab file cannot be found {vocab_pkl}"
 
-        def read_video_filename(video_name):
-            filename = video_name.split(".")[0]
-            parts = filename.split("_")
-            video_id = '_'.join(parts[:-2])
-            start = parts[-2]
-            end = parts[-1]
-            start, end = int(start), int(end)
-            return video_id, start, end
+        if dataset == "MSVD":
+            self.metadata = read_MSVD_Metadata(root_dir, split)
+        elif dataset == "MSR-VTT":
+            self.metadata = read_MSR_VTT_Metadata(root_dir, split)
 
-        multimodal_video_ids = set([])
-        for f in os.listdir(os.path.join(self.root_dir, "features", "video")):
-            _, ext = os.path.splitext(f)
-            video_id, start, end = read_video_filename(f)
-
-            video_filename = os.path.join(self.root_dir, "features", "video", f)
-            # audio_filename = os.path.join(self.root_dir, "features", "audio", f.replace(ext, '.wav'))
-
-            if os.path.isfile(video_filename):# and os.path.isfile(audio_filename):
-                multimodal_video_ids.add(f"{video_id}_{start}_{end}")
-
-        self.metadata = pd.read_csv(self.captions_file)
-        print("Before integrity check:", len(self.metadata))
-
-        to_drop = []
-        for i, row in self.metadata.iterrows():
-            if f"{row['VideoID']}_{row['Start']}_{row['End']}" not in multimodal_video_ids:
-                to_drop.append(i)
-        
-        self.metadata = self.metadata.drop(index=to_drop)
-            
-        print("After integrity check:", len(self.metadata))
-
-        self.metadata = self.metadata[(self.metadata['Source'] == 'clean')]
-
-        print("After removing unverified:", len(self.metadata))
 
         # Initialize vocabulary and build vocab
         if vocab_pkl is None:
             print("Building Vocab")
             self.vocab = Vocabulary(freq_threshold)
-            self.vocab.build_vocabulary(self.metadata["Description"].tolist())
+            self.vocab.build_vocabulary(self.metadata["caption"].tolist())
         else:
             print(f"Loading Vocab: {vocab_pkl} ")
             self.vocab = Vocabulary.load(vocab_pkl)
@@ -181,16 +231,15 @@ class MSVD_Dataset(Dataset):
 
     def __getitem__(self, index):
         row = self.metadata.iloc[index]
-        video_id, start, end, caption = row["VideoID"], row["Start"], row["End"], row["Description"]
+        video_id, caption = row["video_id"], row["caption"]
     
-        name = f"{video_id}_{start}_{end}"
-        if name not in self.features:
+        if video_id not in self.features:
             caption_tokens = [self.vocab.stoi["<SOS>"]]
             caption_tokens += self.vocab.numericalize(caption)
             caption_tokens.append(self.vocab.stoi["<EOS>"])
 
-            video_features_file = os.path.join(self.root_dir, "features", "video", f"{name}.npy")
-            audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{name}.npy")
+            video_features_file = os.path.join(self.root_dir, "features", "video", f"{video_id}.npy")
+            audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{video_id}.npy")
 
             video_features = np.load(video_features_file)
             audio_features = np.load(audio_features_file)
@@ -300,11 +349,10 @@ class VideoCaptionsCollect:
 
 def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0, normalize=False):
 
-    full_video_id = lambda x: f"{x['VideoID']}_{x['Start']}_{x['End']}"
     df = pd.DataFrame()
-    df["FullVideoID"] = videodataset.metadata.apply(full_video_id, axis=1)
-    df["Caption"] = videodataset.metadata["Description"].apply(videodataset.vocab.apply_vocab)
-    vid_captions_dict = df[["FullVideoID", "Caption"]].groupby("FullVideoID")["Caption"].apply(list).to_dict()
+    df["video_id"] = videodataset.metadata["video_id"]
+    df["caption"] = videodataset.metadata["caption"].apply(videodataset.vocab.apply_vocab)
+    vid_captions_dict = df[["video_id", "caption"]].groupby("video_id")["caption"].apply(list).to_dict()
 
     videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict, normalize=normalize)
 
