@@ -122,3 +122,4 @@ checkpoints/
 models/pretrained/
 logs/
 trash/
+*.csv
