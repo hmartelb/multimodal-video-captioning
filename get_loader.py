@@ -236,7 +236,7 @@ class VideoCaptioningDataset(Dataset):
         if video_id not in self.features:
             caption_tokens = [self.vocab.stoi["<SOS>"]]
             caption_tokens += self.vocab.numericalize(caption)
-            caption_tokens.append(self.vocab.stoi["<EOS>"])
+            caption_tokens.append(self.vocab.stoi["<EOS>"])            
 
             video_features_file = os.path.join(self.root_dir, "features", "video", f"{video_id}.npy")
             audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{video_id}.npy")
@@ -262,13 +262,13 @@ class VideoCaptioningDataset(Dataset):
 
             # [n_seconds, n_feats] -> sum(n_feats) and divide 
 
-            self.features[name] = {
+            self.features[video_id] = {
                 'audio': torch.tensor(audio_features),
                 'video': torch.tensor(video_features), 
                 'captions': torch.tensor(caption_tokens)
             }
 
-        return self.features[name]['audio'], self.features[name]['video'], self.features[name]['captions']
+        return self.features[video_id]['audio'], self.features[video_id]['video'], self.features[video_id]['captions']
 
         # features = np.concatenate([video_features, audio_features], axis=1)
         # return torch.tensor(features), torch.tensor(caption_tokens)
@@ -442,25 +442,20 @@ if __name__ == "__main__":
     ## one time setup
     # build_MSVD_vocab()
 
-    dataset_folder = os.path.join("datasets", "MSVD")
+    dataset = "MSR-VTT"
+
+    dataset_folder = os.path.join("datasets", dataset)
     vocab_pkl = os.path.join(dataset_folder, "metadata", "vocab.pkl")
-    train_loader, train_dataset = get_loader(root_dir=dataset_folder, split="train", batch_size=32)
-    val_loader, val_dataset = get_loader(root_dir=dataset_folder, split="val", batch_size=16, vocab_pkl=vocab_pkl)
+
+    train_loader, train_dataset = get_loader(root_dir=dataset_folder, dataset=dataset, split="train", batch_size=128)
+    val_loader, val_dataset = get_loader(root_dir=dataset_folder, dataset=dataset, split="val", batch_size=128, vocab_pkl=vocab_pkl)
     test_loader, test_dataset = get_loader(
-        root_dir=dataset_folder, split="test", batch_size=1, shuffle=False, vocab_pkl=vocab_pkl
+        root_dir=dataset_folder, dataset=dataset, split="test", batch_size=1, shuffle=False, vocab_pkl=vocab_pkl
     )
 
     print(len(train_dataset.vocab))
 
-    # from models import Decoder
-    # model = Decoder(
-    #     output_size=3056,
-    #     attn_size=128,
-    #     max_caption_len=18,
-    # )
-    # model = model.cuda()
-
-    for loader in [train_loader]:  # , val_loader, test_loader]:
+    for loader in [train_loader, val_loader]:  # , val_loader, test_loader]:
         for idx, (audio_features, visual_features, captions) in enumerate(loader):
             # features, captions = features.cuda(), captions.cuda()
 
