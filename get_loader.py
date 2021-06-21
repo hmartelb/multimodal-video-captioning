@@ -176,7 +176,7 @@ def read_MSR_VTT_Metadata(root_dir, split):
         "test": [7010, 9999] # (2990)
     }
     start, end = start_end[split]
-    metadata[(metadata.id >= start) & (metadata.id < end)][['video_id', 'caption']]
+    metadata = metadata[(metadata.id >= start) & (metadata.id < end)][['video_id', 'caption']]
 
     print(f"Total Data Count (MSR-VTT-{split}):", len(metadata))
     return metadata
