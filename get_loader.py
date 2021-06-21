@@ -182,7 +182,7 @@ def read_MSR_VTT_Metadata(root_dir, split):
     return metadata
 
 
-class MSVD_Dataset(Dataset):
+class VideoCaptioningDataset(Dataset):
     def __init__(
         self,
         root_dir,
@@ -415,6 +415,7 @@ class CustomCollateAV:
 
 def get_loader(
     root_dir,
+    dataset="MSVD",
     split="train",
     batch_size=32,
     num_workers=0,
@@ -423,7 +424,7 @@ def get_loader(
     vocab_pkl=None,
     normalize=False,
 ):
-    dataset = MSVD_Dataset(root_dir, split=split, vocab_pkl=vocab_pkl, normalize=normalize)
+    dataset = VideoCaptioningDataset(root_dir, dataset=dataset, split=split, vocab_pkl=vocab_pkl, normalize=normalize)
     pad_idx = dataset.vocab.stoi["<PAD>"]
 
     loader = DataLoader(
