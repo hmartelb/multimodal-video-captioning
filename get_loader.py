@@ -163,7 +163,10 @@ def read_MSVD_Metadata(root_dir, split):
     return metadata[["video_id", "caption"]]
 
 def read_MSR_VTT_Metadata(root_dir, split):
-    json_path = os.path.join(root_dir, "metadata", "train_val_videodatainfo.json")
+    if split is "test":
+        json_path = os.path.join(root_dir, "metadata", "test_videodatainfo.json")
+    else:
+        json_path = os.path.join(root_dir, "metadata", "train_val_videodatainfo.json")
 
     assert os.path.isfile(json_path), f"The captions file cannot be found {json_path}"
 
