@@ -5,23 +5,17 @@ import os
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import transforms
 from tqdm import tqdm
 
-from losses import (
-    ModalityWiseReconstructionLoss,
-    ModalityWiseReconstructionLossBuilder,
-    ReconstructionLossBuilder,
-    TotalReconstructionLoss,
-)
+from get_loader import (VideoDataset_to_VideoCaptionsLoader, Vocabulary,
+                        get_loader)
+from losses import (ModalityWiseReconstructionLoss,
+                    ModalityWiseReconstructionLossBuilder, NLPScore,
+                    ReconstructionLossBuilder, TotalReconstructionLoss)
 from models import AVCaptioning
-from get_loader import Vocabulary, get_loader, VideoDataset_to_VideoCaptionsLoader
-from losses import ReconstructionLossBuilder, TotalReconstructionLoss, NLPScore
-from models import AVCaptioning
-
-from tensorboardX import SummaryWriter
-import gc
 
 DEBUG = False  ## FIXME: Set to False before training
 
@@ -139,8 +133,8 @@ class Trainer:
             self.history["val_loss"].append(val_loss)
             
             if epoch % self.eval_freq == 0 or epoch == train_config.epochs:
-                train_score = self.eval(model, train_vidCap_loader, 'train', epoch)
-                val_score = self.eval(model, val_vidCap_loader, 'val', epoch)
+                train_score, _, _ = self.eval(model, train_vidCap_loader, 'train', epoch)
+                val_score, _, _ = self.eval(model, val_vidCap_loader, 'val', epoch)
                 self.history["train_score"].append(train_score)
                 self.history["val_score"].append(val_score)
 
@@ -173,8 +167,8 @@ class Trainer:
         model = model.to(self.device)
 
         test_loss = self.test(model, test_loader, 'test', epoch)
-        test_score = self.eval(model, test_vidCap_loader, 'test', epoch, mode='direct')
-        # test_score_beam = self.eval(model, test_vidCap_loader, 'test', epoch, mode='beam')
+        test_score, _, _ = self.eval(model, test_vidCap_loader, 'test', epoch, mode='direct')
+        # test_score_beam, _, _ = self.eval(model, test_vidCap_loader, 'test', epoch, mode='beam')
 
         self.history["test_loss"].append(test_loss)
         self.history["test_score"].append(test_score)
@@ -201,14 +195,6 @@ class Trainer:
                 )
 
                 outputs, audio_recons, visual_recons = model(audio_features, visual_features, captions)
-
-                # print("\n",
-                #     dataloader.dataset.vocab.decode_indexes(outputs[:,0].argmax(1)), 
-                #     "\n",
-                #     dataloader.dataset.vocab.decode_indexes(captions[:,0]),
-                #     "\n",
-                # )
-
                 loss, ce, e, a_recon, v_recon = self.RecLoss(
                     outputs,
                     captions,
@@ -334,7 +320,7 @@ class Trainer:
             "v_recon": visual_reconstruction_loss / len(dataloader),
         }
 
-    def eval(self, model, videoCaptions_dataloader, training_phase, epoch, mode='direct'):
+    def eval(self, model, videoCaptions_dataloader, training_phase, epoch, mode='direct', get_scores=True):
         model.eval()
         vid_GT = {}
         vid_gen = {}
@@ -355,22 +341,23 @@ class Trainer:
                     break
             print()
 
-        scores = NLPScore(vid_GT, vid_gen)
-        self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_1', scores['Bleu_1'], epoch)
-        self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_2', scores['Bleu_2'], epoch)
-        self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_3', scores['Bleu_3'], epoch)
-        self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_4', scores['Bleu_4'], epoch)
-        self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/ROUGE_L', scores['ROUGE_L'], epoch)
-        self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/CIDEr', scores['CIDEr'], epoch)
-        print(scores)
-        return scores
+        scores = None
+        if get_scores:
+            scores = NLPScore(vid_GT, vid_gen)
+            self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_1', scores['Bleu_1'], epoch)
+            self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_2', scores['Bleu_2'], epoch)
+            self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_3', scores['Bleu_3'], epoch)
+            self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/Bleu_4', scores['Bleu_4'], epoch)
+            self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/ROUGE_L', scores['ROUGE_L'], epoch)
+            self.summary_writer.add_scalar(f'{training_phase}/score/{mode}/CIDEr', scores['CIDEr'], epoch)
+            print(scores)
+            
+        return scores, vid_GT, vid_gen
 
 
 if __name__ == "__main__":
-    from models import FeaturesCaptioning
-    import json
-
     import argparse
+    import json
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', default='-1')
     args = parser.parse_args()
@@ -390,25 +377,25 @@ if __name__ == "__main__":
         # NO reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 2, "lr": 2e-4},
+            "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
             "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_forcing_1",
             "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_forcing_1'),
         },
-        {
-            "model": {"teacher_forcing_ratio": 0.5, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 2, "lr": 2e-4},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_forcing_0.5",
-            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_forcing_0.5'),
-        },
-        {
-            "model": {"teacher_forcing_ratio": 0, "reconstructor_type": "none"},
-            "training": {"batch_size": 128, "epochs": 2, "lr": 2e-4},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_forcing_0",
-            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_forcing_0'),
-        },
+        # {
+        #     "model": {"teacher_forcing_ratio": 0.5, "reconstructor_type": "none"},
+        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_forcing_0.5",
+        #     "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_forcing_0.5'),
+        # },
+        # {
+        #     "model": {"teacher_forcing_ratio": 0, "reconstructor_type": "none"},
+        #     "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+        #     "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_forcing_0",
+        #     "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_forcing_0'),
+        # },
         # LOCAL reconstructors (video only)
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
@@ -480,22 +467,22 @@ if __name__ == "__main__":
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4}, 
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.1},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_global_0.1_5e-5",
-            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_video_global_0.1_5e-5'),
+            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.1_5e-5",
+            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.1_5e-5'),
         },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_global_0.5_5e-5",
-            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_video_global_0.5_5e-5'),
+            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.5_5e-5",
+            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_video_audio_global_0.5_5e-5'),
         },
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
             "training": {"batch_size": 128, "epochs": 50, "lr": 2e-4},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 1},
-            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_global_1_5e-5",
-            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_video_global_1_5e-5'),
+            "checkpoint_name": "SA-LSTM_50_epochs_reg_5e-4_video_audio_global_1_5e-5",
+            "log_dir": os.path.join('logs', 'SA-LSTM_50_epochs_reg_5e-4_video_audio_global_1_5e-5'),
         },
     ]
 

@@ -120,3 +120,5 @@ temp.wav
 nb/checkpoints/
 checkpoints/
 models/pretrained/
+logs/
+trash/
