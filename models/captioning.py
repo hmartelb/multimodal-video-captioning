@@ -18,7 +18,7 @@ DECODER_CONFIG = {
     "in_feature_size": 2048 + 128,
     "embedding_size": 300,  # 300, #128,
     "attn_size": 256,  # 128,
-    "output_size": 3201,  # Vocab Size
+    "output_size": 1024,  # Vocab Size
 }
 
 RECONSTRUCTOR_CONFIG = {
@@ -29,7 +29,7 @@ RECONSTRUCTOR_CONFIG = {
     "hidden_size": 2048 + 128,  # feature_size
     "rnn_dropout": 0.5,
     "decoder_size": 512,  # 128,  # decoder_hidden_size
-    "attn_size": 256,  # 128,  # only applied for local
+    "attn_size": 512,  # 128,  # only applied for local
 }
 
 #
@@ -44,7 +44,7 @@ VISUAL_DECODER_CONFIG = {
     "in_feature_size": 2048,
     "embedding_size": 300,  # 300, #128,
     "attn_size": 256,  # 128,
-    "output_size": 3201,  # Vocab Size
+    "output_size": 1024,  # Vocab Size
 }
 
 AUDIO_DECODER_CONFIG = {
@@ -56,7 +56,7 @@ AUDIO_DECODER_CONFIG = {
     "in_feature_size": 128,
     "embedding_size": 300,  # 300, #128,
     "attn_size": 256,  # 128,
-    "output_size": 3201,  # Vocab Size
+    "output_size": 512,  # Vocab Size
 }
 
 
@@ -163,7 +163,7 @@ class AVCaptioningDual(nn.Module):
         device="cpu",
         normalize_inputs=False,
     ):
-        super(AVCaptioning, self).__init__()
+        super(AVCaptioningDual, self).__init__()
         self.vocab = vocab
         self.vocab_size = len(vocab)
         self.teacher_forcing_ratio = teacher_forcing_ratio
@@ -176,6 +176,10 @@ class AVCaptioningDual(nn.Module):
         a_config = AUDIO_DECODER_CONFIG.copy()
         a_config["output_size"] = self.vocab_size
 
+        ## FIXME: temporall setup
+        VISUAL_RECONSTRUCTOR_CONFIG = RECONSTRUCTOR_CONFIG
+        AUDIO_RECONSTRUCTOR_CONFIG = RECONSTRUCTOR_CONFIG
+        ##
         v_rec_config = VISUAL_RECONSTRUCTOR_CONFIG.copy()
         v_rec_config["decoder_size"] = v_config["rnn_hidden_size"]
         v_rec_config["hidden_size"] = v_config["in_feature_size"]
@@ -191,6 +195,10 @@ class AVCaptioningDual(nn.Module):
 
         a_decoder = FeaturesCaptioning(**a_config, device=device)
         self.a_decoder = a_decoder.to(device)
+
+
+        # output fusion
+        self.output_fc = nn.Linear(a_config["output_size"]+v_config["output_size"], self.vocab_size)
 
         # if no_reconstructor:
         #     rec_config["type"] = "none"
@@ -217,16 +225,16 @@ class AVCaptioningDual(nn.Module):
         ## Message
         print("Initializing Model...")
         print(
-            "Decoder      :",
-            config["rnn_type"],
+            "Decoder (V,A)     :",
+            (v_config["rnn_type"],a_config["rnn_type"]),
             "In:",
-            config["in_feature_size"],
+            (v_config["in_feature_size"],a_config["in_feature_size"]),
             "Out:",
-            config["output_size"],
+            (v_config["output_size"],a_config["output_size"]),
             "Hidden:",
-            config["rnn_hidden_size"],
+            (v_config["rnn_hidden_size"],a_config["rnn_hidden_size"]),
         )
-        print("Reconstuctor :", rec_config["type"])
+        print("Reconstuctor (V,A):", (v_rec_config["type"], a_rec_config["type"]))
 
     def forward(self, audio_features, visual_features, captions, teacher_forcing_ratio=None):
         # features = torch.cat([audio_features, visual_features], dim=-1)
@@ -247,15 +255,23 @@ class AVCaptioningDual(nn.Module):
             else self.teacher_forcing_ratio,
         )
 
-        
+        ## Fusion - concat(output_a + output_v) -> fc(out=vocab_size) -> sigmoid
+        output_fused = torch.cat((a_outputs, v_outputs), 2)
+        l, b, f = output_fused.shape
+        output_fused = output_fused.view([-1, f])
+        outputs = self.output_fc(output_fused)
+        outputs = torch.sigmoid(outputs)
+        outputs = outputs.view([l,b,-1])
 
-        if self.reconstructor is None:
-            features_recons = None
+        if self.a_reconstructor is None:
             audio_recons = None
+        else:
+            audio_recons = self.a_reconstructor.reconstruct(a_rnn_hiddens, a_outputs, captions, audio_features.shape[1])
+
+        if self.v_reconstructor is None:
             visual_recons = None
         else:
             visual_recons = self.v_reconstructor.reconstruct(v_rnn_hiddens, v_outputs, captions, visual_features.shape[1])
-            audio_recons = self.a_reconstructor.reconstruct(a_rnn_hiddens, a_outputs, captions, audio_features.shape[1])
             
         return outputs, audio_recons, visual_recons
         # return outputs, features_recons
@@ -274,3 +290,4 @@ class AVCaptioningDual(nn.Module):
 
         captions = [self.vocab.decode_indexes(o[1:]) for o in outputs]
         return captions
+        
