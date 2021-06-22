@@ -29,7 +29,7 @@ RECONSTRUCTOR_CONFIG = {
     "hidden_size": 2048 + 128,  # feature_size
     "rnn_dropout": 0.5,
     "decoder_size": 512,  # 128,  # decoder_hidden_size
-    "attn_size": 512,  # 128,  # only applied for local
+    "attn_size": 256,  # 128,  # only applied for local
 }
 
 #
