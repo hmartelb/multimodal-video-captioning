@@ -195,7 +195,9 @@ class VideoCaptioningDataset(Dataset):
         freq_threshold=5,
         vocab_pkl=None,
         normalize = False,
+        video_only=False,
     ):
+        self.video_only = video_only
         self.normalize = normalize
         self.root_dir = root_dir
 
@@ -236,42 +238,47 @@ class VideoCaptioningDataset(Dataset):
         row = self.metadata.iloc[index]
         video_id, caption = row["video_id"], row["caption"]
     
-        if video_id not in self.features:
-            caption_tokens = [self.vocab.stoi["<SOS>"]]
-            caption_tokens += self.vocab.numericalize(caption)
-            caption_tokens.append(self.vocab.stoi["<EOS>"])            
+        # if video_id not in self.features:
+        caption_tokens = [self.vocab.stoi["<SOS>"]]
+        caption_tokens += self.vocab.numericalize(caption)
+        caption_tokens.append(self.vocab.stoi["<EOS>"])            
 
-            video_features_file = os.path.join(self.root_dir, "features", "video", f"{video_id}.npy")
-            audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{video_id}.npy")
+        video_features_file = os.path.join(self.root_dir, "features", "video", f"{video_id}.npy")
+        audio_features_file = os.path.join(self.root_dir, "features", "audio", f"{video_id}.npy")
 
-            video_features = np.load(video_features_file)
-            audio_features = np.load(audio_features_file)
+        video_features = np.load(video_features_file)
+        audio_features = np.load(audio_features_file)
 
-            # quick fix,there are some feature in shape (128,) when number of frame is 1
-            # e.g. 'rOic25PnIx8_1_3'
-            if len(audio_features.shape) < 2:
-                audio_features = audio_features.reshape((-1, 128))
+        # quick fix,there are some feature in shape (128,) when number of frame is 1
+        # e.g. 'rOic25PnIx8_1_3'
+        if len(audio_features.shape) < 2:
+            audio_features = audio_features.reshape((-1, 128))
 
-            # Make both features to have the same frames (drop largest)
-            n_frames = min(video_features.shape[0], audio_features.shape[0])
+        # Make both features to have the same frames (drop largest)
+        n_frames = min(video_features.shape[0], audio_features.shape[0])
 
-            video_features = video_features[0:n_frames, :]
-            audio_features = audio_features[0:n_frames, :]
+        video_features = video_features[0:n_frames, :]
+        audio_features = audio_features[0:n_frames, :]
 
-            # Frame-wise normalization
-            if self.normalize:
-                video_features /= np.sum(video_features, axis=1, keepdims=True)
-                audio_features /= np.sum(audio_features, axis=1, keepdims=True)
+        # Frame-wise normalization
+        if self.normalize:
+            video_features /= np.sum(video_features, axis=1, keepdims=True)
+            audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
-            # [n_seconds, n_feats] -> sum(n_feats) and divide 
+        # Make zeros in audio features
+        if self.video_only:
+            audio_features *= 0 
 
-            self.features[video_id] = {
-                'audio': torch.tensor(audio_features),
-                'video': torch.tensor(video_features), 
-                'captions': torch.tensor(caption_tokens)
-            }
+        # [n_seconds, n_feats] -> sum(n_feats) and divide 
 
-        return self.features[video_id]['audio'], self.features[video_id]['video'], self.features[video_id]['captions']
+        # self.features[video_id] = {
+        #     'audio': torch.tensor(audio_features),
+        #     'video': torch.tensor(video_features), 
+        #     'captions': torch.tensor(caption_tokens)
+        # }
+
+        return torch.tensor(audio_features), torch.tensor(video_features), torch.tensor(caption_tokens)
+        # return self.features[video_id]['audio'], self.features[video_id]['video'], self.features[video_id]['captions']
 
         # features = np.concatenate([video_features, audio_features], axis=1)
         # return torch.tensor(features), torch.tensor(caption_tokens)
@@ -283,10 +290,12 @@ class VideoCaptionsDataset(Dataset):
         root_dir,
         vid_cap_dict,
         normalize = False,
+        video_only=False,
     ):
         """
         vid_cap_dict: dict({ vid: [captions] })
         """
+        self.video_only = video_only
         self.normalize = normalize
         self.root_dir = root_dir
         self.vid_cap_dict = vid_cap_dict
@@ -320,6 +329,10 @@ class VideoCaptionsDataset(Dataset):
             video_features /= np.sum(video_features, axis=1, keepdims=True)
             audio_features /= np.sum(audio_features, axis=1, keepdims=True)
 
+        # Make zeros in audio features
+        if self.video_only:
+            audio_features *= 0 
+
         # features = np.concatenate([video_features, audio_features], axis=1)
         captions = self.vid_cap_dict[video_id_full]
 
@@ -350,14 +363,14 @@ class VideoCaptionsCollect:
         return video_ids, audio_features, visual_features, captions
 
 
-def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0, normalize=False):
+def VideoDataset_to_VideoCaptionsLoader(videodataset, batch_size=32, num_workers=0, normalize=False, video_only=False):
 
     df = pd.DataFrame()
     df["video_id"] = videodataset.metadata["video_id"]
     df["caption"] = videodataset.metadata["caption"].apply(videodataset.vocab.apply_vocab)
     vid_captions_dict = df[["video_id", "caption"]].groupby("video_id")["caption"].apply(list).to_dict()
 
-    videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict, normalize=normalize)
+    videoCaptionsDataset = VideoCaptionsDataset(videodataset.root_dir, vid_captions_dict, normalize=normalize, video_only=video_only)
 
     loader = DataLoader(
         dataset=videoCaptionsDataset,
@@ -426,8 +439,16 @@ def get_loader(
     pin_memory=True,
     vocab_pkl=None,
     normalize=False,
+    video_only=False,
 ):
-    dataset = VideoCaptioningDataset(root_dir, dataset=dataset, split=split, vocab_pkl=vocab_pkl, normalize=normalize)
+    print('-'*50)
+    print("Initializing loader:")
+    print("Dataset:", dataset)
+    print("Split:", split)
+    print("Video_only ?:", video_only)
+    print('-'*50)
+
+    dataset = VideoCaptioningDataset(root_dir, dataset=dataset, split=split, vocab_pkl=vocab_pkl, normalize=normalize, video_only=video_only)
     pad_idx = dataset.vocab.stoi["<PAD>"]
 
     loader = DataLoader(
