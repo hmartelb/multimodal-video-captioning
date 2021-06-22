@@ -10,15 +10,12 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import transforms
 from tqdm import tqdm
 
-from get_loader import VideoDataset_to_VideoCaptionsLoader, Vocabulary, get_loader
-from losses import (
-    ModalityWiseReconstructionLoss,
-    ModalityWiseReconstructionLossBuilder,
-    NLPScore,
-    ReconstructionLossBuilder,
-    TotalReconstructionLoss,
-)
-from models import AVCaptioning
+from get_loader import (VideoDataset_to_VideoCaptionsLoader, Vocabulary,
+                        get_loader)
+from losses import (ModalityWiseReconstructionLoss,
+                    ModalityWiseReconstructionLossBuilder, NLPScore,
+                    ReconstructionLossBuilder, TotalReconstructionLoss)
+from models import AVCaptioning, AVCaptioningDual
 
 DEBUG = False  ## FIXME: Set to False before training
 
@@ -57,9 +54,19 @@ class Trainer:
                 print(f"Resuming training from checkpoint: {self.checkpoint_name}")
                 checkpoint = torch.load(self.checkpoint_name)
 
-                model.decoder.load_state_dict(checkpoint["decoder"])
-                if model.reconstructor and checkpoint["reconstructor"]:
-                    model.reconstructor.load_state_dict(checkpoint["reconstructor"])
+                # model.decoder.load_state_dict(checkpoint["decoder"])
+                # if model.reconstructor and checkpoint["reconstructor"]:
+                #     model.reconstructor.load_state_dict(checkpoint["reconstructor"])
+
+                model.v_decoder.load_state_dict(checkpoint["v_decoder"])
+                if model.v_reconstructor and checkpoint["v_reconstructor"]:
+                    model.v_reconstructor.load_state_dict(checkpoint["v_reconstructor"])
+                
+                model.a_decoder.load_state_dict(checkpoint["a_decoder"])
+                if model.a_reconstructor and checkpoint["a_reconstructor"]:
+                    model.a_reconstructor.load_state_dict(checkpoint["a_reconstructor"])
+
+                # model.load_state_dict(checkpoint['dual_model'])
 
                 self.previous_epochs = checkpoint["epoch"]
                 self.history = checkpoint["history"]
@@ -74,11 +81,24 @@ class Trainer:
         if not os.path.exists(checkpoint_base):
             os.makedirs(checkpoint_base)
 
+        # torch.save(
+        #     {
+        #         "epoch": epochs,
+        #         "decoder": model.decoder.state_dict(),
+        #         "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
+        #         # 'config': cls_to_dict(config),
+        #         "history": self.history,
+        #     },
+        #     self.checkpoint_name,
+        # )
         torch.save(
             {
                 "epoch": epochs,
-                "decoder": model.decoder.state_dict(),
-                "reconstructor": model.reconstructor.state_dict() if model.reconstructor else None,
+                # "dual_model": model.state_dict(),
+                "v_decoder": model.v_decoder.state_dict(),
+                "a_decoder": model.a_decoder.state_dict(),
+                "v_reconstructor": model.v_reconstructor.state_dict() if model.v_reconstructor else None,
+                "a_reconstructor": model.a_reconstructor.state_dict() if model.a_reconstructor else None,
                 # 'config': cls_to_dict(config),
                 "history": self.history,
             },
@@ -180,16 +200,17 @@ class Trainer:
 
         # Evaluate on TEST set using the best model (from checkpoint)
         # model = self._load_checkpoint(model)
-        model = torch.load(self.checkpoint_name.replace(".ckpt", "_best.pt"))
-        model = model.to(self.device)
+        if False:
+            model = torch.load(self.checkpoint_name.replace(".ckpt", "_best.pt"))
+            model = model.to(self.device)
 
-        test_loss = self.test(model, test_loader, "test", epoch)
-        test_score, _, _ = self.eval(model, test_vidCap_loader, "test", epoch, mode="direct")
-        # test_score_beam, _, _ = self.eval(model, test_vidCap_loader, 'test', epoch, mode='beam')
+            test_loss = self.test(model, test_loader, "test", epoch)
+            test_score, _, _ = self.eval(model, test_vidCap_loader, "test", epoch, mode="direct")
+            # test_score_beam, _, _ = self.eval(model, test_vidCap_loader, 'test', epoch, mode='beam')
 
-        self.history["test_loss"].append(test_loss)
-        self.history["test_score"].append(test_score)
-        # self.history["test_score"].append(test_score_beam)
+            self.history["test_loss"].append(test_loss)
+            self.history["test_score"].append(test_score)
+            # self.history["test_score"].append(test_score_beam)
 
         return self.history
 
@@ -407,96 +428,104 @@ if __name__ == "__main__":
 
     CHECKPOINTS_DIR = os.path.join("checkpoints", dataset)
 
+    dual = True
+
     v_v_global_local_exp = [
-        # NO reconstructor
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_only"),
-            "video_only": True,
-        },
-        # Local reconstructor
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only_local_0.5'",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_only_local_0.5"),
-            "video_only": True,
-        },
+        # # NO reconstructor
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+        #     "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0},
+        #     "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only",
+        #     "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_only"),
+        #     "video_only": True,
+        # },
+        # # Local reconstructor
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+        #     "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+        #     "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only_local_0.5'",
+        #     "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_only_local_0.5"),
+        #     "video_only": True,
+        # },
         # Global reconstructor
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
-            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_only_global_0.5'",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_only_global_0.5"),
-            "video_only": True,
-        },
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
+        #     "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+        #     "checkpoint_name": f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_only_global_0.5'",
+        #     "log_dir": os.path.join("logs", dataset, f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_only_global_0.5"),
+        #     "video_only": True,
+        # },
     ]
 
     av_v_global_local_exp = [
         # NO reconstructor
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
-            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_none_0.5_5e-5",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_none_0.5_5e-5"),
-        },
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
+        #     "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+        #     "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_none_0.5_5e-5",
+        #     "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_none_0.5_5e-5"),
+        # },
         # Local reconstructor
-        {
-            "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
-            "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
-            "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_local_0.5_5e-5",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_local_0.5_5e-5"),
-        },
+        # {
+        #     "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
+        #     "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
+        #     "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
+        #     "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_local_0.5_5e-5",
+        #     "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_local_0.5_5e-5"),
+        # },
         # Global reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
             "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_global_0.5_5e-5",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_global_0.5_5e-5"),
+            "checkpoint_name": f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_global_0.5_5e-5",
+            "log_dir": os.path.join("logs", dataset, f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_global_0.5_5e-5"),
         },
     ]
 
     av_av_global_local_exp = [
-        # NO reconstructor
+        # # NO reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "none"},
             "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_audio_none_0.5_5e-5",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_audio_none_0.5_5e-5"),
+            "checkpoint_name": f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_audio_none_0.5_5e-5",
+            "log_dir": os.path.join("logs", dataset, f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_audio_none_0.5_5e-5"),
         },
-        # Local reconstructor
+        # # Local reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "local"},
             "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_audio_local_0.5_5e-5",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_audio_local_0.5_5e-5"),
+            "checkpoint_name": f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_audio_local_0.5_5e-5",
+            "log_dir": os.path.join("logs", dataset, f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_audio_local_0.5_5e-5"),
         },
         # Global reconstructor
         {
             "model": {"teacher_forcing_ratio": 1.0, "reconstructor_type": "global"},
             "training": {"batch_size": args.batch_size, "epochs": args.epochs, "lr": args.lr},
             "loss": {"reg_lambda": 0.0005, "audio_recon_lambda": 0.00005, "visual_recon_lambda": 0.5},
-            "checkpoint_name": f"SA-LSTM_{args.epochs}_epochs_video_audio_global_0.5_5e-5",
-            "log_dir": os.path.join("logs", dataset, f"SA-LSTM_{args.epochs}_epochs_video_audio_global_0.5_5e-5"),
+            "checkpoint_name": f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_audio_global_0.5_5e-5",
+            "log_dir": os.path.join("logs", dataset, f"{'dual_' if dual else ''}SA-LSTM_{args.epochs}_epochs_video_audio_global_0.5_5e-5"),
         },
     ]
 
     if args.gpu == "0":
         experiments = v_v_global_local_exp
     if args.gpu == "1":
-        experiments = av_av_global_local_exp
+        experiments = [*av_av_global_local_exp]#, *av_v_global_local_exp]
     if args.gpu == "2":
-        experiments = av_v_global_local_exp
+        experiments = av_av_global_local_exp#av_v_global_local_exp
+
+    print()
+    print(f"Performing {len(experiments)} experiments")
+    print()
+
+    # print(experiments[0]["checkpoint_name"])
 
     for exp in experiments:
 
@@ -537,12 +566,20 @@ if __name__ == "__main__":
             video_only=exp["video_only"] if "video_only" in exp else False,
         )
 
-        model = AVCaptioning(
-            vocab=vocab,
-            teacher_forcing_ratio=exp["model"]["teacher_forcing_ratio"],
-            reconstructor_type=exp["model"]["reconstructor_type"],
-            device=device,
-        )
+        if dual:
+            model = AVCaptioningDual(
+                vocab=vocab,
+                teacher_forcing_ratio=exp["model"]["teacher_forcing_ratio"],
+                reconstructor_type=exp["model"]["reconstructor_type"],
+                device=device,
+            )
+        else:
+            model = AVCaptioning(
+                vocab=vocab,
+                teacher_forcing_ratio=exp["model"]["teacher_forcing_ratio"],
+                reconstructor_type=exp["model"]["reconstructor_type"],
+                device=device,
+            )
 
         # Try loading previous checkpoint (transfer learning)
         base_checkpoint_name = (
@@ -559,22 +596,22 @@ if __name__ == "__main__":
         if not os.path.isdir(exp["log_dir"]):
             os.makedirs(exp["log_dir"])
 
-        try:
-            checkpoint_name = os.path.join(CHECKPOINTS_DIR, exp["checkpoint_name"] + ".ckpt")
-            tr = Trainer(checkpoint_name=checkpoint_name, log_dir=exp["log_dir"], eval_freq=1)
-            history = tr.fit(
-                model,
-                train_loader,
-                val_loader,
-                test_loader,
-                device,
-                train_config,
-            )
+        # try:
+        checkpoint_name = os.path.join(CHECKPOINTS_DIR, exp["checkpoint_name"] + ".ckpt")
+        tr = Trainer(checkpoint_name=checkpoint_name, log_dir=exp["log_dir"], eval_freq=1)
+        history = tr.fit(
+            model,
+            train_loader,
+            val_loader,
+            test_loader,
+            device,
+            train_config,
+        )
 
-            # Save the history where the checkpoint is
-            with open(checkpoint_name.replace(".ckpt", ".json"), "w") as f:
-                json.dump(history, f)
+        # Save the history where the checkpoint is
+        with open(checkpoint_name.replace(".ckpt", ".json"), "w") as f:
+            json.dump(history, f)
 
-        except:
-            # FIXME: this is to perform all the experiments after if one fails
-            pass
+        # except:
+        #     # FIXME: this is to perform all the experiments after if one fails
+        #     pass

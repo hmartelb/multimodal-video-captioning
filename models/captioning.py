@@ -255,13 +255,8 @@ class AVCaptioningDual(nn.Module):
             else self.teacher_forcing_ratio,
         )
 
-        ## Fusion - concat(output_a + output_v) -> fc(out=vocab_size) -> sigmoid
-        output_fused = torch.cat((a_outputs, v_outputs), 2)
-        l, b, f = output_fused.shape
-        output_fused = output_fused.view([-1, f])
-        outputs = self.output_fc(output_fused)
-        outputs = torch.sigmoid(outputs)
-        outputs = outputs.view([l,b,-1])
+        # Perform the concatenation and FC of each modality output
+        outputs = self._feature_fusion(a_outputs, v_outputs)
 
         if self.a_reconstructor is None:
             audio_recons = None
@@ -276,14 +271,38 @@ class AVCaptioningDual(nn.Module):
         return outputs, audio_recons, visual_recons
         # return outputs, features_recons
 
-    def predict(self, audio_features, visual_features, max_caption_len=30, mode="direct", beam_alpha=0, beam_width=5):
-        features = torch.cat([audio_features, visual_features], dim=-1)
+    def _feature_fusion(self, a_outputs, v_outputs):
+        ## Fusion - concat(output_a + output_v) -> fc(out=vocab_size) -> sigmoid
+        # output_fused = torch.cat((a_outputs, v_outputs), 2)
+        # l, b, f = output_fused.shape
+        # output_fused = output_fused.view([-1, f])
+        # outputs = self.output_fc(output_fused)
+        # outputs = torch.sigmoid(outputs)
+        # outputs = outputs.view([l,b,-1])
 
+        # A) Sum the outputs
+        output_fused = a_outputs + v_outputs
+        # B) Max pooling
+        # output_fused = torch.maximum(a_outputs, v_outputs)
+
+        # outputs = torch.sigmoid(output_fused) # NOTE: Sigmoid is not needed. If uncommented, CE loss is negative
+        outputs = output_fused
+        return outputs
+
+    def predict(self, audio_features, visual_features, max_caption_len=30, mode="direct", beam_alpha=0, beam_width=5):
         if mode == "beam":
-            outputs = self.decoder.beam_search_predict(features, self.vocab, max_caption_len, beam_alpha, beam_width)
+            v_outputs = self.v_decoder.beam_search_predict(visual_features, self.vocab, max_caption_len, beam_alpha, beam_width)
+            a_outputs, _ = self.a_decoder.beam_search_predict(audio_features, self.vocab, max_caption_len, beam_alpha, beam_width)
+
+            # FIXME: not implemented
 
         if mode == "direct":
-            outputs, _ = self.decoder.decode(features, captions=None, max_caption_len=max_caption_len)
+            v_outputs, _ = self.v_decoder.decode(visual_features, captions=None, max_caption_len=max_caption_len)
+            a_outputs, _ = self.a_decoder.decode(audio_features, captions=None, max_caption_len=max_caption_len)
+
+            # Perform the concatenation and FC of each modality output
+            outputs = self._feature_fusion(a_outputs, v_outputs)
+
             # outputs > [max_caption_len, batch_size, vocab_size]
             outputs = outputs.argmax(2).transpose(1, 0)
             # outputs > [batch_size, max_caption_len]
