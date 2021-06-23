@@ -69,6 +69,10 @@ Modify the experiment configuration inside of the script and adapt it to your ow
 ## Evaluation
 Clone evaluation codes from [python3 coco-evaluation repo](https://github.com/daqingliu/coco-caption) and copy them in the `pycocoevalcap/` folder.
 
+**It is important to perform this step before training**, since the training script relies on the evaluation metrics for validation. 
+
+When the training has finished, it is also possible to evaluate the results by loading an existing model checkpoint. To do that, execute the notebook in `nb/predict_captions.py`. The results will be saved to the folder `results/<dataset_name>` in `.csv` format with 1 file per model, containing the generated captions and ground truth captions. 
+
 ## Acknowledgements
 
 * The code borrows the LSTM and reconstructor architectures from the [original RecNet implementation](https://github.com/hobincar/RecNet), which has been adapted to our multi-modal problem. 
