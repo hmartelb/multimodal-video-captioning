@@ -114,10 +114,9 @@ dmypy.json
 .pyre/
 
 # Datasets
-datasets/
 .vscode/settings.json
 temp.wav
-nb/checkpoints/
+notebooks/checkpoints/
 checkpoints/
 models/pretrained/
 logs/

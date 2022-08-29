@@ -1,8 +1,26 @@
-# Video-Captioning-AV
+______________________________________________________________________
 
-This repository contains the code for the Final Project of the Natural Language Processing course at Tsinghua University, spring 2021.
+<div align="center">
 
-In this project, we have developed a system that can generate a description of a short video clip using a sentence in English. To run our code, please follow these instructions:
+# Multimodal Video Captioning
+<!-- <a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a> -->
+</div>
+
+## Project description
+
+This repository contains the code for the Final Project of the Natural Language Processing course at Tsinghua University, Spring 2021.
+
+In this project, we have developed a Deep Learning model to generate a description of a short video clip using a single sentence in English. The model architecture consists of a Visual CNN encoder and a [pre-trained VGGish audio encoder](https://github.com/harritaylor/torchvggish), followed by Soft Attention for multi-modal fusion and a LSTM sentence decoder. The design choices are inspired by [RecNet](https://github.com/hobincar/RecNet). The output is a sequence of words that represent the content of the input video. The full architecture is illustrated below:
+
+<div align="center">
+
+<!-- ![Architecture_diagram](docs/Architecture_diagram.png) -->
+![Architecture diagram](docs/SoftAttention-LSTM.png)
+
+</div>
+
+Please refer to the [project report](docs/Hector_Martel-Chua_Khang_Hui-Final_report.pdf) for more specific details about the architecture, training procedures and results.
+
 
 ## Environment setup
 
@@ -16,7 +34,7 @@ $ (venv) pip install -r requirements.txt
 
 ## Data preparation
 
-Download the MSVD and MSR-VTT datasets and place them in the `datasets/` folder. The code is expecting to have following structure: 
+Download the MSVD and MSR-VTT datasets and place them in the `datasets/` folder. The code expects the datasets to have following structure: 
 
 ```
 <dataset name>/
@@ -54,10 +72,10 @@ When the feature extraction finishes, the folders `features/audio` and `features
 
 ## Model training
 
-To train a model, run the script `trainer.py` with the appropriate command line arguments, as follows:
+To train a model, run the script `train.py` with the appropriate command line arguments, as follows:
 
 ```
-(venv) trainer.py   --dataset 'MSVD' or 'MSR-VTT'
+(venv) train.py   --dataset 'MSVD' or 'MSR-VTT'
                     [--epochs <integer> (default, 50)]
                     [--batch_size <integer> (default, 128)]
                     [--lr <float> (default, 1e-4)]
@@ -71,10 +89,38 @@ Clone evaluation codes from [python3 coco-evaluation repo](https://github.com/da
 
 **It is important to perform this step before training**, since the training script relies on the evaluation metrics for validation. 
 
-When the training has finished, it is also possible to evaluate the results by loading an existing model checkpoint. To do that, execute the notebook in `nb/predict_captions.py`. The results will be saved to the folder `results/<dataset_name>` in `.csv` format with 1 file per model, containing the generated captions and ground truth captions. 
+When the training has finished, it is also possible to evaluate the results by loading an existing model checkpoint. To do that, execute the notebook in `notebooks/predict_captions.py`. The results will be saved to the folder `results/<dataset_name>` in `.csv` format with 1 file per model, containing the generated captions and ground truth captions. 
 
 ## Acknowledgements
 
 * The code borrows the LSTM and reconstructor architectures from the [original RecNet implementation](https://github.com/hobincar/RecNet), which has been adapted to our multi-modal problem. 
 
 * The VGGish model used for audio feature extraction is from [this PyTorch implementation](https://github.com/harritaylor/torchvggish).
+
+## License 
+
+This code implementation is licensed under the terms of the MIT License.
+
+```
+MIT License
+Copyright (c) 2021 Héctor Martel, Chua Khang Hui
+Master in Advanced Computing, Tsinghua University
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
