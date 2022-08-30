@@ -20,7 +20,7 @@ In this project, we have developed a Deep Learning model to generate a descripti
 <div align="center">
 
 <!-- ![Architecture_diagram](docs/Architecture_diagram.png) -->
-![Architecture diagram](docs/SoftAttention-LSTM.png)
+![Architecture diagram](docs/img/SoftAttention-LSTM.png)
 
 </div>
 
@@ -29,12 +29,19 @@ Please refer to the [project report](docs/Hector_Martel-Chua_Khang_Hui-Final_rep
 
 ## Environment setup
 
+First, clone the repository in your local machine by running this command:
+
+```bash
+git clone https://github.com/hmartelb/multimodal-video-captioning
+cd multimodal-video-captioning
+```
+
 Make sure that you have Python 3 installed in your system. Also, Pytorch 1.5 or above needs to be installed. Check the [official installation guide](https://pytorch.org/get-started/locally/) to set it up according to your system requirements and CUDA version.
 
 It is recommended to create a virtual environment to install the dependencies. Open a new terminal in the master directory, activate the virtual environment and install the dependencies from ``requirements.txt`` by executing this command:
 
-```
-$ (venv) pip install -r requirements.txt
+```bash
+(venv) pip install -r requirements.txt
 ```
 
 ## Data preparation
@@ -90,11 +97,14 @@ To train a model, run the script `train.py` with the appropriate command line ar
 Modify the experiment configuration inside of the script and adapt it to your own needs. An array of experiments can also be used to run sequentially, one after the other, for conveninence.
 
 ## Evaluation
-Clone evaluation codes from [python3 coco-evaluation repo](https://github.com/daqingliu/coco-caption) and copy them in the `pycocoevalcap/` folder.
+<!-- Clone evaluation codes from [python3 coco-evaluation repo](https://github.com/daqingliu/coco-caption) and copy them in the `pycocoevalcap/` folder. -->
 
-**It is important to perform this step before training**, since the training script relies on the evaluation metrics for validation. 
+<!-- **It is important to perform this step before training**, since the training script relies on the evaluation metrics for validation.  -->
 
-When the training has finished, it is also possible to evaluate the results by loading an existing model checkpoint. To do that, execute the notebook in `notebooks/predict_captions.py`. The results will be saved to the folder `results/<dataset_name>` in `.csv` format with 1 file per model, containing the generated captions and ground truth captions. 
+When the training has finished, evaluate the results by loading an existing model checkpoint, as follows: 
+1. Execute the notebook in `notebooks/predict_captions.py`. 
+2. The results will be saved to the folder `results/<dataset_name>` in `.csv` format with 1 file per model, containing the generated captions and ground truth captions. 
+3. Run the evaluation of `pycocoevalcap/` on the generated captions to obtain the objective scores for the model.
 
 ## Acknowledgements
 
