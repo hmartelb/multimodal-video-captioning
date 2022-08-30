@@ -2,7 +2,12 @@ ______________________________________________________________________
 
 <div align="center">
 
-# Multimodal Video Captioning
+# Multimodal Video Captioning 
+
+<a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a>
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Project report](https://img.shields.io/badge/Project_report-Read-00ff00.svg)](docs/Hector_Martel-Chua_Khang_Hui-Final_report.pdf)
+
 <!-- <a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a> -->
 </div>
 
